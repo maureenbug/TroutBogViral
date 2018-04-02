@@ -3,13 +3,13 @@ title: "TB_bin_exploration"
 output: html_document
 ---
 
-```{r setup, include=FALSE}
+```{r setup, include=FALSE, message=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ## Load packages
 
-```{r}
+```{r, message=FALSE}
 library(plyr)
 library(pheatmap)
 library(viridis)
@@ -20,7 +20,7 @@ library(RColorBrewer)
 
 ## Load coverage data & remove enrichment controls
 
-```{r}
+```{r, message=FALSE}
 weirdbin_contigs <- c("ChPeak_MDA_MAG_00003_000000000133", "ChPeak_MDA_MAG_00003_000000000131", 
                       "ChPeak_MDA_Bin_00005_000000000083", "ChPeak_MDA_MAG_00003_000000000233", 
                       "ChPeak_MDA_MAG_00003_000000000239", "ChPeak_MDA_Bin_00005_000000000016", 
@@ -100,7 +100,7 @@ vData_pos_m$variableS <- gsub("Bin_", "Bin", vData_pos_m$variableS)
 
 ## Plot detection values for genome bins and viral contigs
 
-```{r}
+```{r, message=FALSE}
 p <- ggplot(gData_pos_m, aes(x = date, y = value, color = fraction, shape = fraction)) + 
   geom_point() + 
   ylab("Proportion of the Bin with at least 1X coverage") +
@@ -149,7 +149,7 @@ p + facet_grid(. ~ variableS)
 ## Plot contig coverage with a trendline showing the median value for each sampling date
 Each point represents a coverage value for each contig
 
-```{r}
+```{r, message=FALSE}
 ##### FUNCTION ###############
 ## clean data, and put it in the right format for plotting
 ######################
@@ -226,7 +226,7 @@ plot_coverage(vDataBin5_pos_m_clean, "Bin5")
 
 ## remove top and bottom 10% of contigs for each sample
 
-```{r}
+```{r, message=FALSE}
 ##### FUNCTION ###############
 ## remove outliers; top and bottom 10% from each sample*date
 ######################
@@ -259,7 +259,7 @@ vDataBin5_pos_m_clean_OLR <- remove_outliers(vDataBin5_pos_m_clean)
 
 ## Plot contig coverage with a trendline showing the median value for each sampling date after removing outliers
 
-```{r}
+```{r, message=FALSE}
 plot_coverage(vDataBin1_pos_m_clean_OLR, "Bin1-OLR")
 plot_coverage(vDataBin2_pos_m_clean_OLR, "Bin2-OLR")
 plot_coverage(vDataBin3_pos_m_clean_OLR, "Bin3-OLR")
@@ -270,7 +270,7 @@ plot_coverage(vDataBin5_pos_m_clean_OLR, "Bin5-OLR")
 
 ## comparing coverage between MAGs and access genomes
 Bins 2 and 4
-```{r}
+```{r, message=FALSE}
 vDataBin2_pos_m_clean_OLR$Bin <- "Bin2"
 vDataBin4_pos_m_clean_OLR$Bin <- "Bin4"
 
@@ -293,7 +293,7 @@ p + facet_wrap( ~ year, scales = "free")
 
 ## comparing coverage between MAGs and access genomes
 Bins 3 and 5
-```{r}
+```{r, message=FALSE}
 vDataBin3_pos_m_clean_OLR$Bin <- "Bin3"
 vDataBin5_pos_m_clean_OLR$Bin <- "Bin5"
 
@@ -381,7 +381,7 @@ pheatmap(
 
 ### Correlation within bins (contigs)
 
-```{r}
+```{r, message=FALSE}
 ##### FUNCTION ###############
 ## prep and plot correlation data
 ######################
@@ -422,7 +422,7 @@ cor_within(vDataBin5_noMDA, "Correlation within Bin5")
 
 ## Correlation between bins (contigs)
 
-```{r}
+```{r, message=FALSE}
 cor_matrix = cor(data.matrix(
   cbind(vDataBin1_noMDA[,1:(ncol(vDataBin1_noMDA)-4)][,apply(vDataBin1_noMDA[,1:(ncol(vDataBin1_noMDA)-4)], 
                                                                                   2,function(x) !all(x==0))],
@@ -539,7 +539,7 @@ pheatmap(
 
 ## Viral gene detection
 
-```{r}
+```{r, message=FALSE}
 viral_bin_files <- c("viral_solo_summary/viral_solo_summary/bin_by_bin/Bin_10/Bin_10-gene_detection.txt", 
                      "viral_solo_summary/viral_solo_summary/bin_by_bin/Bin_14/Bin_14-gene_detection.txt", 
                      "viral_solo_summary/viral_solo_summary/bin_by_bin/Bin_18/Bin_18-gene_detection.txt", 
