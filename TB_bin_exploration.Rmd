@@ -1,0 +1,717 @@
+---
+title: "TB_bin_exploration"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load packages
+
+```{r}
+library(plyr)
+library(pheatmap)
+library(viridis)
+library(tidyverse)
+library(reshape2)
+library(RColorBrewer)
+```
+
+## Load coverage data & remove enrichment controls
+
+```{r}
+weirdbin_contigs <- c("ChPeak_MDA_MAG_00003_000000000133", "ChPeak_MDA_MAG_00003_000000000131", 
+                      "ChPeak_MDA_Bin_00005_000000000083", "ChPeak_MDA_MAG_00003_000000000233", 
+                      "ChPeak_MDA_MAG_00003_000000000239", "ChPeak_MDA_Bin_00005_000000000016", 
+                      "ChPeak_MDA_MAG_00003_000000000111", "ChPeak_MDA_Bin_00005_000000000017", 
+                      "ChPeak_MDA_MAG_00003_000000000099", "ChPeak_MDA_Bin_00005_000000000078", 
+                      "ChPeak_MDA_MAG_00003_000000000163", "ChPeak_MDA_MAG_00003_000000000063", 
+                      "ChPeak_MDA_MAG_00003_000000000064", "ChPeak_MDA_MAG_00003_000000000241", 
+                      "ChPeak_MDA_MAG_00003_000000000058", "ChPeak_MDA_MAG_00003_000000000071", 
+                      "ChPeak_MDA_MAG_00003_000000000157")
+
+vDataBin1 <- read.table("Bin1_coverages_R.txt", header = TRUE, row.names = 1)
+vDataBin2 <- read.table("Bin2_coverages_R.txt", header = TRUE, row.names = 1)
+vDataBin3t <- read.table("Bin3_coverages_R.txt", header = TRUE, row.names = 1)
+  vDataBin3 <- subset(vDataBin3t, select = !(names(vDataBin3t) %in% weirdbin_contigs))
+vDataBin4 <- read.table("Bin4_coverages_R.txt", header = TRUE, row.names = 1)
+vDataBin5 <- read.table("Bin5_coverages_R.txt", header = TRUE, row.names = 1)
+
+##### FUNCTION ###############
+## remove enrichment controls
+######################
+remove_controls <- function(x){
+  remove <- c("Enrichment-NT", "Enrichment-NEG")
+  return(subset(x, !(x$fraction %in% remove)))
+}
+##############################
+
+vDataBin1_pos_m <- melt(remove_controls(vDataBin1))
+vDataBin2_pos_m <- melt(remove_controls(vDataBin2))
+vDataBin3_pos_m <- melt(remove_controls(vDataBin3))
+vDataBin4_pos_m <- melt(remove_controls(vDataBin4))
+vDataBin5_pos_m <- melt(remove_controls(vDataBin5))
+```
+
+
+## Load detection data & remove enrichment controls
+
+```{r, message=FALSE}
+gData <- read.table("MDA_bin_data_w_metadata.txt", header = TRUE, row.names = 1)
+vData <- read.table("viral_bin_data_w_metadata.txt", header = TRUE, row.names = 1)
+
+##### FUNCTION ###############
+## clean data, and put it in the right format for plotting
+######################
+data_clean_noBV <- function(x) {
+  mDate <- format(as.Date(x$date, format = "%m/%d/%Y"), "20%y/%m/%d")
+  x$date <- as.Date(mDate)
+  NCx <- ncol(x)
+  x[,(NCx+1):(NCx+3)] <- str_split_fixed(x$date, "-", 3)
+  colnames(x)[(NCx+1):(NCx+3)] <- c("year", "month", "day")
+  
+  spring <- c("03", "04", "05")
+  summer <- c("06", "07", "08")
+  fall <- c("09", "10", "11")
+  
+  x$season <- x$month
+  x[x$season %in% spring, "season"] <- "spring"
+  x[x$season %in% summer, "season"] <- "summer"
+  x[x$season %in% fall, "season"] <- "fall"
+  
+  x$seasonYear <- paste(x$season, x$year, sep ="")
+  x$seasonYear <- factor(x$seasonYear, levels = c("summer2005", "spring2007", "summer2007", "fall2007",
+                                                                              "spring2008", "summer2008", "fall2008",
+                                                                              "spring2009", "summer2009", "summer2010",
+                                                                              "summer2012", "summer2013", "summer2017", 
+                                                                              "fall2017"))
+  return(x)
+}
+##############################
+
+## remove enrichment NT and negative fractions
+gData_pos_m <- data_clean_noBV(melt(remove_controls(gData)))
+vData_pos_m <- data_clean_noBV(melt(remove_controls(vData)))
+vData_pos_m$variableS <- gsub("ChPeak_MDA_Bin_", "MDA_", vData_pos_m$variable)
+vData_pos_m$variableS <- gsub("ChPeak_MDA_MAG_", "MDA_M", vData_pos_m$variableS)
+vData_pos_m$variableS <- gsub("Bin_", "Bin", vData_pos_m$variableS)
+```
+
+## Plot detection values for genome bins and viral contigs
+
+```{r}
+p <- ggplot(gData_pos_m, aes(x = date, y = value, color = fraction, shape = fraction)) + 
+  geom_point() + 
+  ylab("Proportion of the Bin with at least 1X coverage") +
+  ggtitle("Genome bin contig detection") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 14, face = "bold"),
+        text = element_text(size = 12),
+        axis.title = element_text(face="bold"),
+        axis.text.x=element_text(size = 11, angle = 45, hjust = 1)) +
+  scale_color_manual(values = c("#ca0020", "#fdae61", "#2c7bb6")) +
+  scale_shape_manual(values = c(1, 16, 16))
+p + facet_grid(. ~ variable)
+
+##
+
+p <- ggplot(gData_pos_m, aes(x = seasonYear, y = value, fill = fraction)) + 
+  geom_boxplot() + 
+  ylab("Proportion of the Bin with at least 1X coverage") +
+  ggtitle("Genome bin contig detection") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 14, face = "bold"),
+        text = element_text(size = 12),
+        axis.title = element_text(face="bold"),
+        axis.text.x=element_text(size = 11, angle = 45, hjust = 1)) +
+  #scale_color_brewer(palette = "Set2")
+  scale_color_manual(values = c("#ca0020", "#fdae61", "#2c7bb6"))
+p + facet_wrap( ~ variable, scales = "free")
+
+##
+
+p <- ggplot(vData_pos_m, aes(x = date, y = value, color = fraction, shape = fraction)) + 
+  geom_point() + 
+  ylab("Proportion of contig with at least 1x coverage") +
+  ggtitle("Viral contig detection") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 14, face = "bold"),
+        text = element_text(size = 12),
+        axis.title = element_text(face="bold"),
+        axis.text.x=element_text(size = 11, angle = 45, hjust = 1)) +
+  scale_color_manual(values = c("#ca0020", "#fdae61", "#2c7bb6")) +
+  scale_shape_manual(values = c(1, 16, 16))
+p + facet_grid(. ~ variableS)
+```
+
+
+## Plot contig coverage with a trendline showing the median value for each sampling date
+Each point represents a coverage value for each contig
+
+```{r}
+##### FUNCTION ###############
+## clean data, and put it in the right format for plotting
+######################
+data_clean <- function(x) {
+  x$BV <- as.character(x$variable)
+  x[grepl("^vChPeak", x$BV),]$BV <- "virus"
+  x[grepl("^ChPeak", x$BV),]$BV <- "microbial"
+  x$BV <- factor(x$BV)
+  #vDataBin1_pos_m$date <- factor(vDataBin1_pos_m$date, levels = unique(vDataBin1_pos_m$date))
+  mDate <- format(as.Date(x$date, format = "%m/%d/%Y"), "20%y/%m/%d")
+  x$date <- as.Date(mDate)
+  NCx <- ncol(x)
+  x[,(NCx+1):(NCx+3)] <- str_split_fixed(x$date, "-", 3)
+  colnames(x)[(NCx+1):(NCx+3)] <- c("year", "month", "day")
+  
+  spring <- c("03", "04", "05")
+  summer <- c("06", "07", "08")
+  fall <- c("09", "10", "11")
+  
+  x$season <- x$month
+  x[x$season %in% spring, "season"] <- "spring"
+  x[x$season %in% summer, "season"] <- "summer"
+  x[x$season %in% fall, "season"] <- "fall"
+  
+  x$seasonYear <- paste(x$season, x$year, sep ="")
+  x$seasonYear <- factor(x$seasonYear, levels = c("summer2005", "spring2007", "summer2007", "fall2007",
+                                                                              "spring2008", "summer2008", "fall2008",
+                                                                              "spring2009", "summer2009", "summer2010",
+                                                                              "summer2012", "summer2013", "summer2017", 
+                                                                              "fall2017"))
+  return(x)
+}
+##############################
+
+vDataBin1_pos_m_clean <- data_clean(vDataBin1_pos_m)
+vDataBin2_pos_m_clean <- data_clean(vDataBin2_pos_m)
+vDataBin3_pos_m_clean <- data_clean(vDataBin3_pos_m)
+vDataBin4_pos_m_clean <- data_clean(vDataBin4_pos_m)
+vDataBin5_pos_m_clean <- data_clean(vDataBin5_pos_m)
+
+##### FUNCTION ###############
+## plotting function
+######################
+plot_coverage <- function(k, m) {
+  #w$value_adj <- w$value + 0.0000000001
+  w <- k
+  w$date <- factor(w$date)
+  p <- ggplot(w, 
+              aes(x = date, y = value, color = BV)) + geom_point(size = 0.8) +
+    ylab("Coverage") +
+    ggtitle(paste("Contig coverage w/ median coverage line", m, sep = "-")) +
+    theme_bw() +
+    theme(plot.title = element_text(size = 14, face = "bold"),
+          text = element_text(size = 12),
+          axis.title = element_text(face="bold"),
+          axis.text.x=element_text(size = 11, angle = 45, hjust = 1)) +
+    #scale_color_brewer(palette = "Set2")
+    scale_color_manual(values = c("#fdae61", "#ca0020", "#2c7bb6")) +
+    scale_shape_manual(values = c(1, 16, 16))
+  
+  p + facet_wrap( ~ year, scales = "free") + stat_summary(aes(group=BV), fun.y=median, geom="line") #+ 
+    #scale_y_continuous(limits = c(0, 10))
+    #scale_y_continuous(trans='log10')
+  
+}
+##############################
+
+plot_coverage(vDataBin1_pos_m_clean, "Bin1")
+plot_coverage(vDataBin2_pos_m_clean, "Bin2")
+plot_coverage(vDataBin3_pos_m_clean, "Bin3")
+plot_coverage(vDataBin4_pos_m_clean, "Bin4")
+plot_coverage(vDataBin5_pos_m_clean, "Bin5")
+```
+
+## remove top and bottom 10% of contigs for each sample
+
+```{r}
+##### FUNCTION ###############
+## remove outliers; top and bottom 10% from each sample*date
+######################
+remove_outliers <- function(m){
+  qnt <- ddply(m, .(sample, date), function(x) quantile(x$value, probs=c(.10, .90)))
+  y <- m
+  for(i in 1:nrow(qnt)){
+    ifelse(
+      nrow(y[y$BV == "microbial" & y$sample == as.character(qnt[i,1]) & y$date == as.character(qnt[i,2]) & y$value < qnt[i,3],]) != 0,
+      y[(y$BV == "microbial" & y$sample == as.character(qnt[i,1]) & y$date == as.character(qnt[i,2]) & y$value < qnt[i,3]),]$value <- NA,
+      NA)
+    y2 <- y[!is.na(y$value),]
+    ifelse(
+      nrow(y2[y2$BV == "microbial" & y2$sample == as.character(qnt[i,1]) & y2$date == as.character(qnt[i,2]) & y2$value > qnt[i,4],]) != 0,
+      y2[(y2$BV == "microbial" & y2$sample == as.character(qnt[i,1]) & y2$date == as.character(qnt[i,2]) & y2$value > qnt[i,4]),]$value <- NA,
+      NA)
+    y <- (y2[!is.na(y2$value),])
+  }
+  return(y)
+}
+##############################
+
+vDataBin1_pos_m_clean_OLR <- remove_outliers(vDataBin1_pos_m_clean)
+vDataBin2_pos_m_clean_OLR <- remove_outliers(vDataBin2_pos_m_clean)
+vDataBin3_pos_m_clean_OLR <- remove_outliers(vDataBin3_pos_m_clean)
+vDataBin4_pos_m_clean_OLR <- remove_outliers(vDataBin4_pos_m_clean)
+vDataBin5_pos_m_clean_OLR <- remove_outliers(vDataBin5_pos_m_clean)
+
+```
+
+## Plot contig coverage with a trendline showing the median value for each sampling date after removing outliers
+
+```{r}
+plot_coverage(vDataBin1_pos_m_clean_OLR, "Bin1-OLR")
+plot_coverage(vDataBin2_pos_m_clean_OLR, "Bin2-OLR")
+plot_coverage(vDataBin3_pos_m_clean_OLR, "Bin3-OLR")
+plot_coverage(vDataBin4_pos_m_clean_OLR, "Bin4-OLR")
+plot_coverage(vDataBin5_pos_m_clean_OLR, "Bin5-OLR")
+```
+
+
+## comparing coverage between MAGs and access genomes
+Bins 2 and 4
+```{r}
+vDataBin2_pos_m_clean_OLR$Bin <- "Bin2"
+vDataBin4_pos_m_clean_OLR$Bin <- "Bin4"
+
+temp <- rbind(vDataBin2_pos_m_clean_OLR, vDataBin4_pos_m_clean_OLR)
+temp$date <- factor(temp$date)
+p <- ggplot(temp, aes(x = date, y = value, fill = Bin, color = Bin)) + 
+  geom_boxplot() + 
+  ylab("Coverage") +
+  ggtitle(paste("Contig coverage w/ median coverage line", "OLR-Bin2+4", sep = "-")) +
+  theme_bw() +
+  theme(plot.title = element_text(size = 14, face = "bold"),
+        text = element_text(size = 12),
+        axis.title = element_text(face="bold"),
+        axis.text.x=element_text(size = 11, angle = 45, hjust = 1)) +
+  #scale_color_brewer(palette = "Set2")
+  scale_fill_manual(values = c("#fdb863", "#b2abd2")) +
+  scale_color_manual(values = c("#e66101", "#5e3c99"))
+p + facet_wrap( ~ year, scales = "free")
+```
+
+## comparing coverage between MAGs and access genomes
+Bins 3 and 5
+```{r}
+vDataBin3_pos_m_clean_OLR$Bin <- "Bin3"
+vDataBin5_pos_m_clean_OLR$Bin <- "Bin5"
+
+temp <- rbind(vDataBin3_pos_m_clean_OLR, vDataBin5_pos_m_clean_OLR)
+temp$date <- factor(temp$date)
+p <- ggplot(temp, aes(x = date, y = value, fill = Bin, color = Bin)) + 
+  geom_boxplot() + 
+  ylab("Coverage") +
+  ggtitle(paste("Contig coverage w/ median coverage line", "OLR-Bin3+5", sep = "-")) +
+  theme_bw() +
+  theme(plot.title = element_text(size = 14, face = "bold"),
+        text = element_text(size = 12),
+        axis.title = element_text(face="bold"),
+        axis.text.x=element_text(size = 11, angle = 45, hjust = 1)) +
+  #scale_color_brewer(palette = "Set2")
+  scale_fill_manual(values = c("#fdb863", "#b2abd2")) +
+  scale_color_manual(values = c("#e66101", "#5e3c99"))
+p + facet_wrap( ~ year, scales = "free")
+```
+
+## Correlation between bins
+
+```{r, messages = FALSE}
+##### FUNCTION ###############
+## remove MDA samples
+######################
+remove_MDA <- function(x){
+  remove <- c("7/17/17", "9/1/17")
+  return(subset(x, !(x$date %in% remove)))
+}
+##############################
+
+vDataBin1_noMDA <- remove_MDA(vDataBin1)
+vDataBin2_noMDA <- remove_MDA(vDataBin2)
+vDataBin3_noMDA <- remove_MDA(vDataBin3)
+vDataBin4_noMDA <- remove_MDA(vDataBin4)
+vDataBin5_noMDA <- remove_MDA(vDataBin5)
+
+##### FUNCTION ###############
+## prep data for correlation
+######################
+cor_prep <- function(x, k){
+  ncol(x)
+  w <- data.frame(apply(x[,1:(ncol(x)-4)], 1, median))
+  colnames(w) <- k
+  return(w)
+}
+##############################
+
+
+vDataBin1_noMDA_cor <- cor_prep(vDataBin1_noMDA, "Bin1")
+vDataBin2_noMDA_cor <- cor_prep(vDataBin2_noMDA, "Bin2")
+vDataBin3_noMDA_cor <- cor_prep(vDataBin3_noMDA, "Bin3")
+vDataBin4_noMDA_cor <- cor_prep(vDataBin4_noMDA, "Bin4")
+vDataBin5_noMDA_cor <- cor_prep(vDataBin5_noMDA, "Bin5")
+
+
+cor_matrix = cor(data.matrix(cbind(vDataBin1_noMDA_cor, vDataBin2_noMDA_cor, vDataBin3_noMDA_cor,
+                                   vDataBin4_noMDA_cor, vDataBin5_noMDA_cor)), use = "pairwise")
+
+## colors for annotation side bare
+mat_col <- data.frame(group = colnames(cor_matrix))
+rownames(mat_col) <- colnames(cor_matrix)
+mat_colors <- list(group = brewer.pal(5, "Set1"))
+names(mat_colors$group) <- colnames(cor_matrix)
+
+pheatmap(
+  mat               = cor_matrix,
+  color             = brewer.pal(9, "RdBu"),
+  border_color      = NA,
+  show_colnames     = FALSE,
+  show_rownames     = FALSE,
+  annotation_col    = mat_col,
+  annotation_row    = mat_col,
+  annotation_colors = mat_colors,
+  #cluster_rows = FALSE,
+  #cluster_cols = FALSE,
+  drop_levels       = TRUE,
+  fontsize          = 14,
+  main              = "Correlation between bins",
+  breaks = rev(seq(1, -1, length.out = 10))
+)
+
+```
+
+### Correlation within bins (contigs)
+
+```{r}
+##### FUNCTION ###############
+## prep and plot correlation data
+######################
+cor_within <- function(m, k){
+  cor_matrix = cor(data.matrix(m[,1:(ncol(m)-4)][,apply(m[,1:(ncol(m)-4)], 2,function(x) !all(x==0))]), use = "pairwise")
+  vCount <- length(grep("^vChPeak", colnames(cor_matrix)))
+  mat_col <- data.frame(group = c(rep("microbe", length(colnames(cor_matrix))-vCount), rep("virus", vCount)))
+  rownames(mat_col) <- colnames(cor_matrix)
+  mat_colors <- list(group = brewer.pal(3, "Dark2")[1:2])
+  names(mat_colors$group) <- unique(c(rep("microbe", length(colnames(cor_matrix))-vCount), rep("virus", vCount)))
+
+pheatmap(
+  mat               = cor_matrix,
+  color             = brewer.pal(9, "RdBu"),
+  border_color      = NA,
+  show_colnames     = FALSE,
+  show_rownames     = FALSE,
+  annotation_col    = mat_col,
+  annotation_row    = mat_col,
+  annotation_colors = mat_colors,
+  #cluster_rows = FALSE,
+  #cluster_cols = FALSE,
+  drop_levels       = TRUE,
+  fontsize          = 14,
+  main              = k,
+  breaks = rev(seq(1, -1, length.out = 10))
+)
+}
+##############################
+
+cor_within(vDataBin1_noMDA, "Correlation within Bin1")
+cor_within(vDataBin2_noMDA, "Correlation within Bin2")
+cor_within(vDataBin3_noMDA, "Correlation within Bin3")
+cor_within(vDataBin4_noMDA, "Correlation within Bin4")
+cor_within(vDataBin5_noMDA, "Correlation within Bin5")
+
+```
+
+## Correlation between bins (contigs)
+
+```{r}
+cor_matrix = cor(data.matrix(
+  cbind(vDataBin1_noMDA[,1:(ncol(vDataBin1_noMDA)-4)][,apply(vDataBin1_noMDA[,1:(ncol(vDataBin1_noMDA)-4)], 
+                                                                                  2,function(x) !all(x==0))],
+  vDataBin4_noMDA[,1:(ncol(vDataBin4_noMDA)-4)][,apply(vDataBin4_noMDA[,1:(ncol(vDataBin4_noMDA)-4)], 
+                                                                                  2,function(x) !all(x==0))],
+  vDataBin5_noMDA[,1:(ncol(vDataBin5_noMDA)-4)][,apply(vDataBin5_noMDA[,1:(ncol(vDataBin5_noMDA)-4)], 
+                                                                                  2,function(x) !all(x==0))])),
+  use = "pairwise")
+
+cNames <- colnames(cor_matrix)
+cNames[grepl("^vChPeak_MDA_Bin_00005", cNames)] <- "v5Bin"
+cNames[grepl("^ChPeak_MDA_Bin_00005", cNames)] <- "5Bin"
+cNames[grepl("^vChPeak_MDA_Bin_00004", cNames)] <- "v4Bin"
+cNames[grepl("^ChPeak_MDA_Bin_00004", cNames)] <- "4Bin"
+cNames[grepl("^vChPeak_MDA_MAG_00001", cNames)] <- "v1Bin"
+cNames[grepl("^ChPeak_MDA_MAG_00001", cNames)] <- "1Bin"
+
+mat_col <- data.frame(group = cNames)
+rownames(mat_col) <- colnames(cor_matrix)
+mat_colors <- list(group = brewer.pal(6, "Dark2"))
+names(mat_colors$group) <- unique(cNames)
+
+pheatmap(
+  mat               = cor_matrix,
+  color             = brewer.pal(9, "RdBu"),
+  border_color      = NA,
+  show_colnames     = FALSE,
+  show_rownames     = FALSE,
+  annotation_col    = mat_col,
+  annotation_row    = mat_col,
+  annotation_colors = mat_colors,
+  #cluster_rows = FALSE,
+  #cluster_cols = FALSE,
+  drop_levels       = TRUE,
+  fontsize          = 14,
+  main              = "Correlation between Bins 1, 4, and 5",
+  breaks = rev(seq(1, -1, length.out = 10))
+)
+
+
+cor_matrix = cor(data.matrix(
+  cbind(vDataBin2_noMDA[,1:(ncol(vDataBin2_noMDA)-4)][,apply(vDataBin2_noMDA[,1:(ncol(vDataBin2_noMDA)-4)], 
+                                                             2,function(x) !all(x==0))],
+        vDataBin4_noMDA[,1:(ncol(vDataBin4_noMDA)-4)][,apply(vDataBin4_noMDA[,1:(ncol(vDataBin4_noMDA)-4)], 
+                                                             2,function(x) !all(x==0))])),
+  use = "pairwise")
+
+cNames <- colnames(cor_matrix)
+cNames[grepl("^vChPeak_MDA_MAG_00002", cNames)] <- "v2Bin"
+cNames[grepl("^ChPeak_MDA_MAG_00002", cNames)] <- "2Bin"
+cNames[grepl("^vChPeak_MDA_Bin_00004", cNames)] <- "v4Bin"
+cNames[grepl("^ChPeak_MDA_Bin_00004", cNames)] <- "4Bin"
+
+mat_col <- data.frame(group = cNames)
+rownames(mat_col) <- colnames(cor_matrix)
+mat_colors <- list(group = brewer.pal(4, "Dark2"))
+names(mat_colors$group) <- unique(cNames)
+
+pheatmap(
+  mat               = cor_matrix,
+  color             = brewer.pal(9, "RdBu"),
+  border_color      = NA,
+  show_colnames     = FALSE,
+  show_rownames     = FALSE,
+  annotation_col    = mat_col,
+  annotation_row    = mat_col,
+  annotation_colors = mat_colors,
+  #cluster_rows = FALSE,
+  #cluster_cols = FALSE,
+  drop_levels       = TRUE,
+  fontsize          = 14,
+  main              = "Correlation between Bin 2 and 4",
+  breaks = rev(seq(1, -1, length.out = 10))
+)
+
+
+
+cor_matrix = cor(data.matrix(
+  cbind(vDataBin3_noMDA[,1:(ncol(vDataBin3_noMDA)-4)][,apply(vDataBin3_noMDA[,1:(ncol(vDataBin3_noMDA)-4)], 
+                                                             2,function(x) !all(x==0))],
+        vDataBin5_noMDA[,1:(ncol(vDataBin5_noMDA)-4)][,apply(vDataBin5_noMDA[,1:(ncol(vDataBin5_noMDA)-4)], 
+                                                             2,function(x) !all(x==0))])),
+  use = "pairwise")
+
+cNames <- colnames(cor_matrix)
+cNames[grepl("^vChPeak_MDA_MAG_00003", cNames)] <- "v3Bin"
+cNames[grepl("^ChPeak_MDA_MAG_00003", cNames)] <- "3Bin"
+cNames[grepl("^vChPeak_MDA_Bin_00005", cNames)] <- "v5Bin"
+cNames[grepl("^ChPeak_MDA_Bin_00005", cNames)] <- "5Bin"
+
+mat_col <- data.frame(group = cNames)
+rownames(mat_col) <- colnames(cor_matrix)
+mat_colors <- list(group = brewer.pal(4, "Dark2"))
+names(mat_colors$group) <- unique(cNames)
+
+pheatmap(
+  mat               = cor_matrix,
+  color             = brewer.pal(9, "RdBu"),
+  border_color      = NA,
+  show_colnames     = FALSE,
+  show_rownames     = FALSE,
+  annotation_col    = mat_col,
+  annotation_row    = mat_col,
+  annotation_colors = mat_colors,
+  #cluster_rows = FALSE,
+  #cluster_cols = FALSE,
+  drop_levels       = TRUE,
+  fontsize          = 14,
+  main              = "Correlation between Bins 3 and 5",
+  breaks = rev(seq(1, -1, length.out = 10))
+)
+```
+
+
+## Viral gene detection
+
+```{r}
+viral_bin_files <- c("viral_solo_summary/viral_solo_summary/bin_by_bin/Bin_10/Bin_10-gene_detection.txt", 
+                     "viral_solo_summary/viral_solo_summary/bin_by_bin/Bin_14/Bin_14-gene_detection.txt", 
+                     "viral_solo_summary/viral_solo_summary/bin_by_bin/Bin_18/Bin_18-gene_detection.txt", 
+                     "viral_solo_summary/viral_solo_summary/bin_by_bin/Bin_11/Bin_11-gene_detection.txt", 
+                     "viral_solo_summary/viral_solo_summary/bin_by_bin/Bin_15/Bin_15-gene_detection.txt", 
+                     "viral_solo_summary/viral_solo_summary/bin_by_bin/Bin_8/Bin_8-gene_detection.txt", 
+                     "viral_solo_summary/viral_solo_summary/bin_by_bin/Bin_12/Bin_12-gene_detection.txt", 
+                     "viral_solo_summary/viral_solo_summary/bin_by_bin/Bin_16/Bin_16-gene_detection.txt", 
+                     "viral_solo_summary/viral_solo_summary/bin_by_bin/Bin_9/Bin_9-gene_detection.txt", 
+                     "viral_solo_summary/viral_solo_summary/bin_by_bin/Bin_13/Bin_13-gene_detection.txt", 
+                     "viral_solo_summary/viral_solo_summary/bin_by_bin/Bin_17/Bin_17-gene_detection.txt")
+metadata <- read.table("Bin1_coverages_R.txt", header = TRUE, row.names = 1)[, c("sample", "location", "date", "fraction")]
+metadata <- metadata[order(metadata$sample),]
+
+##### FUNCTION ###############
+## remove outliers; top and bottom 10% from each sample*date
+######################
+data_clean2 <- function(x) {
+  mDate <- format(as.Date(x$date, format = "%m/%d/%Y"), "20%y/%m/%d")
+  x$date <- as.Date(mDate)
+  NCx <- ncol(x)
+  x[,(NCx+1):(NCx+3)] <- str_split_fixed(x$date, "-", 3)
+  colnames(x)[(NCx+1):(NCx+3)] <- c("year", "month", "day")
+  
+  spring <- c("03", "04", "05")
+  summer <- c("06", "07", "08")
+  fall <- c("09", "10", "11")
+  
+  x$season <- x$month
+  x[x$season %in% spring, "season"] <- "spring"
+  x[x$season %in% summer, "season"] <- "summer"
+  x[x$season %in% fall, "season"] <- "fall"
+  
+  x$seasonYear <- paste(x$season, x$year, sep ="")
+  x$seasonYear <- factor(x$seasonYear, levels = c("summer2005", "spring2007", "summer2007", "fall2007",
+                                                  "spring2008", "summer2008", "fall2008",
+                                                  "spring2009", "summer2009", "summer2010",
+                                                  "summer2012", "summer2013", "summer2017", 
+                                                  "fall2017"))
+  return(x)
+}
+##############################
+
+for(i in 1:length(viral_bin_files)){
+  temp <- t(read.table(viral_bin_files[i], header = TRUE, row.names = 1))
+  colnames(temp) <- paste(colnames(temp), "a", sep="")
+  rownames(temp) <- gsub("a", "", rownames(temp))
+  temp <- cbind(temp, metadata)
+  temp <- data_clean2(melt(remove_controls(temp)))
+  temp <- temp[order(temp$date),]
+  temp$variable <- gsub("a", "", temp$variable)
+  temp$date <- factor(temp$date)
+  assign(paste("viral_bin", i, sep="_"), temp)
+}
+
+
+
+ggplot(aggregate(value ~ date + variable, data = viral_bin_1, FUN= "median"), aes(x = date, y = variable)) + 
+  geom_tile(aes(fill = value)) + scale_fill_viridis(name="Proportion detection") +
+  ylab("gene") +
+  ggtitle("Detection of viral genes - ChPeak_MDA_Bin_00004_000000000020") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 14, face = "bold"),
+        text = element_text(size = 12),
+        axis.title = element_text(face="bold"),
+        axis.text.x=element_text(size = 11, angle = 45, hjust = 1))
+
+ggplot(aggregate(value ~ date + variable, data = viral_bin_2, FUN= "median"), aes(x = date, y = variable)) + 
+  geom_tile(aes(fill = value)) + scale_fill_viridis(name="Proportion detection") +
+  ylab("gene") +
+  ggtitle("Detection of viral genes - ChPeak_MDA_MAG_00003_000000000103") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 14, face = "bold"),
+        text = element_text(size = 12),
+        axis.title = element_text(face="bold"),
+        axis.text.x=element_text(size = 11, angle = 45, hjust = 1))
+
+ggplot(aggregate(value ~ date + variable, data = viral_bin_3, FUN= "median"), aes(x = date, y = variable)) + 
+  geom_tile(aes(fill = value)) + scale_fill_viridis(name="Proportion detection") +
+  ylab("gene") +
+  ggtitle("Detection of viral genes - ChPeak_MDA_MAG_00001_000000000051") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 14, face = "bold"),
+        text = element_text(size = 12),
+        axis.title = element_text(face="bold"),
+        axis.text.x=element_text(size = 11, angle = 45, hjust = 1))
+
+
+ggplot(aggregate(value ~ date + variable, data = viral_bin_4, FUN= "median"), aes(x = date, y = variable)) + 
+  geom_tile(aes(fill = value)) + scale_fill_viridis(name="Proportion detection") +
+  ylab("gene") +
+  ggtitle("Detection of viral genes - ChPeak_MDA_Bin_00004_000000000068") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 14, face = "bold"),
+        text = element_text(size = 12),
+        axis.title = element_text(face="bold"),
+        axis.text.x=element_text(size = 11, angle = 45, hjust = 1))
+
+
+ggplot(aggregate(value ~ date + variable, data = viral_bin_5, FUN= "median"), aes(x = date, y = variable)) + 
+  geom_tile(aes(fill = value)) + scale_fill_viridis(name="Proportion detection") +
+  ylab("gene") +
+  ggtitle("Detection of viral genes - ChPeak_MDA_MAG_00003_000000000082") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 14, face = "bold"),
+        text = element_text(size = 12),
+        axis.title = element_text(face="bold"),
+        axis.text.x=element_text(size = 11, angle = 45, hjust = 1))
+
+ggplot(aggregate(value ~ date + variable, data = viral_bin_6, FUN= "median"), aes(x = date, y = variable)) + 
+  geom_tile(aes(fill = value)) + scale_fill_viridis(name="Proportion detection") +
+  ylab("gene") +
+  ggtitle("Detection of viral genes - ChPeak_MDA_Bin_00004_000000000022") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 14, face = "bold"),
+        text = element_text(size = 12),
+        axis.title = element_text(face="bold"),
+        axis.text.x=element_text(size = 11, angle = 45, hjust = 1))
+
+ggplot(aggregate(value ~ date + variable, data = viral_bin_7, FUN= "median"), aes(x = date, y = variable)) + 
+  geom_tile(aes(fill = value)) + scale_fill_viridis(name="Proportion detection") +
+  ylab("gene") +
+  ggtitle("Detection of viral genes - ChPeak_MDA_Bin_00005_000000000073") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 14, face = "bold"),
+        text = element_text(size = 12),
+        axis.title = element_text(face="bold"),
+        axis.text.x=element_text(size = 11, angle = 45, hjust = 1))
+
+
+ggplot(aggregate(value ~ date + variable, data = viral_bin_8, FUN= "median"), aes(x = date, y = variable)) + 
+  geom_tile(aes(fill = value)) + scale_fill_viridis(name="Proportion detection") +
+  ylab("gene") +
+  ggtitle("Detection of viral genes - ChPeak_MDA_MAG_00003_000000000099") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 14, face = "bold"),
+        text = element_text(size = 12),
+        axis.title = element_text(face="bold"),
+        axis.text.x=element_text(size = 11, angle = 45, hjust = 1))
+
+ggplot(aggregate(value ~ date + variable, data = viral_bin_9, FUN= "median"), aes(x = date, y = variable)) + 
+  geom_tile(aes(fill = value)) + scale_fill_viridis(name="Proportion detection") +
+  ylab("gene") +
+  ggtitle("Detection of viral genes - ChPeak_MDA_MAG_00002_000000000083") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 14, face = "bold"),
+        text = element_text(size = 12),
+        axis.title = element_text(face="bold"),
+        axis.text.x=element_text(size = 11, angle = 45, hjust = 1))
+
+ggplot(aggregate(value ~ date + variable, data = viral_bin_10, FUN= "median"), aes(x = date, y = variable)) + 
+  geom_tile(aes(fill = value)) + scale_fill_viridis(name="Proportion detection") +
+  ylab("gene") +
+  ggtitle("Detection of viral genes - ChPeak_MDA_Bin_00005_000000000046") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 14, face = "bold"),
+        text = element_text(size = 12),
+        axis.title = element_text(face="bold"),
+        axis.text.x=element_text(size = 11, angle = 45, hjust = 1))
+
+ggplot(aggregate(value ~ date + variable, data = viral_bin_11, FUN= "median"), aes(x = date, y = variable)) + 
+  geom_tile(aes(fill = value)) + scale_fill_viridis(name="Proportion detection") +
+  ylab("gene") +
+  ggtitle("Detection of viral genes - ChPeak_MDA_MAG_00001_000000000015") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 14, face = "bold"),
+        text = element_text(size = 12),
+        axis.title = element_text(face="bold"),
+        axis.text.x=element_text(size = 11, angle = 45, hjust = 1))
+
+
+
+
+```
+
