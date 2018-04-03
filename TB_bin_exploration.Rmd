@@ -715,3 +715,33 @@ ggplot(aggregate(value ~ date + variable, data = viral_bin_11, FUN= "median"), a
 
 ```
 
+## Sulfur gene detection
+
+```{r, message=FALSE}
+metadata <- read.table("Bin1_coverages_R.txt", header = TRUE, row.names = 1)[, c("sample", "location", "date", "fraction")]
+metadata <- metadata[order(metadata$sample),]
+
+sulfur_detect <- read.table("gene_cov_detect-SULFUR-GENE-DETECTION.txt", header = TRUE, row.names = 1)
+gene_calls_sulfur <- read.table("sulfur_KO_genecalls.txt", header = TRUE, row.names = 1)
+gene_calls_sulfur <- gene_calls_sulfur[rownames(sulfur_detect),]
+colnames(sulfur_detect) <- gsub("a", "", colnames(sulfur_detect))
+rownames(sulfur_detect) <- paste(gene_calls_sulfur$contig, rownames(gene_calls_sulfur), sep = "_")
+sulfur_detect <- t(sulfur_detect)
+sulfur_detect <- cbind(sulfur_detect, metadata)
+sulfur_detect_pos_m <- data_clean2(melt(remove_controls(sulfur_detect)))
+sulfur_detect_pos_m$date <- factor(sulfur_detect_pos_m$date)
+sulfur_detect_pos_m$variable <- factor(sulfur_detect_pos_m$variable, levels = unique(sort(as.character(sulfur_detect_pos_m$variable))))
+
+ggplot(aggregate(value ~ date + variable, data = sulfur_detect_pos_m, FUN= "median"), aes(x = date, y = variable)) + 
+  geom_tile(aes(fill = value)) + scale_fill_viridis(name="Proportion detection") +
+  ylab("gene") +
+  ggtitle("Detection of sulfur genes") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 14, face = "bold"),
+        text = element_text(size = 12),
+        axis.title = element_text(face="bold"),
+        axis.text.x=element_text(size = 11, angle = 45, hjust = 1))
+
+
+
+```
