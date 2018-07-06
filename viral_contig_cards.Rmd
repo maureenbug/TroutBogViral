@@ -1,0 +1,632 @@
+---
+title: "viral contig cards"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load packages
+
+```{r, message=FALSE}
+library(plyr)
+library(pheatmap)
+library(viridis)
+library(tidyverse)
+library(reshape2)
+library(RColorBrewer)
+```
+
+## Load coverage and metadata files
+
+```{r}
+num_reads <- read.table("num_reads.txt", header = TRUE)
+  add_sample <- num_reads[grep("IHSC1", rownames(num_reads)), ]
+  num_reads_new <- rbind(num_reads, add_sample)
+  rownames(num_reads_new)[length(rownames(num_reads_new))] <- "IHSC"
+  temp_rn <- c("1187478", "1187479", "1187486", "1187487", "1187488", "1187489", "1187490")
+  temp_values <- data.frame(c(1, 1, 1, 1, 1, 1, 1))
+  rownames(temp_values) <- c("1187478", "1187479", "1187486", "1187487", "1187488", "1187489", "1187490")
+  colnames(temp_values) <- "num_reads"
+  num_reads_new <- rbind(num_reads_new, temp_values)
+
+
+## metadata format
+metadata <- read.table("Bin1_coverages_R.txt", header = TRUE, row.names = 1)[, c("sample", "location", "date", "fraction")]
+  NCx <- ncol(metadata)
+  metadata[,(NCx+1):(NCx+3)] <- str_split_fixed(metadata$date, "/", 3)
+  colnames(metadata)[(NCx+1):(NCx+3)] <- c("month", "day", "year")
+  year2005 <- as.character(subset(metadata, year == "05")$sample)
+  year2007 <- as.character(subset(metadata, year == "07")$sample)
+  year2008 <- as.character(subset(metadata, year == "08")$sample)
+  year2009 <- as.character(subset(metadata, year == "09")$sample)
+  year2010 <- as.character(subset(metadata, year == "10")$sample)
+  year2012 <- as.character(subset(metadata, year == "12")$sample)
+  year2013 <- as.character(subset(metadata, year == "13")$sample)
+  year2017 <- as.character(subset(metadata, year == "17")$sample)
+  metadata$year <- as.character(metadata$sample)
+  metadata[metadata$year %in% year2005, "year"] <- "2005"
+  metadata[metadata$year %in% year2007, "year"] <- "2007"
+  metadata[metadata$year %in% year2008, "year"] <- "2008"
+  metadata[metadata$year %in% year2009, "year"] <- "2009"
+  metadata[metadata$year %in% year2010, "year"] <- "2010"
+  metadata[metadata$year %in% year2012, "year"] <- "2012"
+  metadata[metadata$year %in% year2013, "year"] <- "2013"
+  metadata[metadata$year %in% year2017, "year"] <- "2017"
+  spring <- as.character(subset(metadata, month %in% c("3", "4", "5"))$sample)
+  summer <- as.character(subset(metadata, month %in% c("6", "7", "8"))$sample)
+  fall <- as.character(subset(metadata, month %in% c("9", "10", "11"))$sample)
+  metadata$season <- as.character(metadata$sample)
+  metadata[metadata$season %in% spring, "season"] <- "spring"
+  metadata[metadata$season %in% summer, "season"] <- "summer"
+  metadata[metadata$season %in% fall, "season"] <- "fall"
+  metadata$year <- factor(metadata$year)
+  metadata$season <- factor(metadata$season)
+  add_sample <- metadata[35, ]
+  add_sample$sample <- gsub("IHSC1", "IHSC", add_sample$sample)
+  rownames(add_sample) <- gsub("IHSC1", "IHSC", rownames(add_sample))
+  metadata <- rbind(metadata, add_sample)
+```
+
+
+## Import and modify nt coverage data
+
+```{r}
+
+import_modify_nt_coverage_data <- function(x){
+  for(i in 1:(length(x))){
+    temp <- read.table(x[i], header = TRUE, stringsAsFactors = FALSE)
+    temp$sample_name <- gsub("a", "", temp$sample_name)
+    metadata1 <- metadata[temp$sample_name,]
+    temp2 <- cbind(temp, metadata1)
+    num_reads2 <- data.frame(num_reads_new[as.character(temp2$sample),])
+    colnames(num_reads2) <- c("ReadDepth")
+    rownames(num_reads2) <- rownames(metadata1)
+    temp3 <- cbind(temp2, num_reads2)
+    temp3$ReadDepth <- factor(temp3$ReadDepth)
+    temp4 <- temp3
+    colnames(temp4) <- gsub("value", "coverage", colnames(temp4))
+    colnames(temp4) <- gsub("variable", "contig", colnames(temp4))
+    temp4$ReadDepth <- as.numeric(levels(temp4$ReadDepth))[temp4$ReadDepth]
+    temp4$norm_coverage <- (temp4$coverage/as.numeric(temp4$ReadDepth))*10000
+    if(i == 1){
+      main_data <- temp4
+    }else{
+     temp4$nt_position <- temp4$nt_position + (max(main_data$nt_position) + 1)
+     main_data <- rbind(main_data, temp4)
+    }
+  }
+  mDate <- format(as.Date(main_data$date, format = "%m/%d/%Y"), "20%y/%m/%d")
+  main_data$date <- mDate
+  main_data$date <- factor(main_data$date, levels = unique(sort(mDate)))
+  colnames(main_data) <- gsub("split_name", "contig", colnames(main_data))
+  main_data$seasonYear <- paste(main_data$season, main_data$year, sep = "")
+  main_data$new_norm_coverage <- main_data$norm_coverage + 1
+  weirdbin_contigs <- c("ChPeak_MDA_MAG_00003_000000000133", "ChPeak_MDA_MAG_00003_000000000131", 
+                      "ChPeak_MDA_Bin_00005_000000000083", "ChPeak_MDA_MAG_00003_000000000233", 
+                      "ChPeak_MDA_MAG_00003_000000000239", "ChPeak_MDA_Bin_00005_000000000016", 
+                      "ChPeak_MDA_MAG_00003_000000000111", "ChPeak_MDA_Bin_00005_000000000017", 
+                      "ChPeak_MDA_MAG_00003_000000000099", "ChPeak_MDA_Bin_00005_000000000078", 
+                      "ChPeak_MDA_MAG_00003_000000000163", "ChPeak_MDA_MAG_00003_000000000063", 
+                      "ChPeak_MDA_MAG_00003_000000000064", "ChPeak_MDA_MAG_00003_000000000241", 
+                      "ChPeak_MDA_MAG_00003_000000000058", "ChPeak_MDA_MAG_00003_000000000071", 
+                      "ChPeak_MDA_MAG_00003_000000000157")
+  remove_SAGs <- c("1132750", "1132751", "1132752", "1132753", "1132754", "1132755", "1132756", "1132758", "1132759", "1132760", "1132762", "1132764", "1132766", "1132767", "1132768", "1132769", "1132771", "1132772", "1132870", "1132871", "1132878", "1132879", "1132880", "1132881", "1132882", "1132883", "1132887", "1132889", "1132891", "1132892", "1133008", "1133010", "1133012", "1133015", "1133016", "1133017", "1133019", "1133024", "1133025", "1133026", "1133027", "1133028", "1133127", "1133128", "1133130", "1133131", "1133132", "1133133", "1133134", "1133135", "1133141", "1133142", "1133144", "1133146")
+  remove_controls_list <- c("1187478", "1187479", "1187486", "1187487", "1187488", "1187489", "1187490")
+  return(subset(main_data, sample %in% setdiff(main_data$sample, c(remove_SAGs, remove_controls_list))))
+}
+
+
+v1_15 <- c("nt_coverage_values/coverage_test_1_15_1.txt", "nt_coverage_values/coverage_test_1_15_2.txt")
+v1_51 <- c("nt_coverage_values/coverage_test_1_51_1.txt", "nt_coverage_values/coverage_test_1_51_2.txt")
+v2_83 <- c("nt_coverage_values/coverage_test_2_83_1.txt", "nt_coverage_values/coverage_test_2_83_2.txt")
+v3_103 <- c("nt_coverage_values/coverage_test_3_103.txt")
+v3_82 <- c("nt_coverage_values/coverage_test_3_82.txt")
+v3_99 <- c("nt_coverage_values/coverage_test_3_99.txt")
+v4_20 <- c("nt_coverage_values/coverage_test_4_20.txt")
+v4_22 <- c("nt_coverage_values/coverage_test_4_22.txt")
+v4_68 <- c("nt_coverage_values/coverage_test_4_68.txt")
+v5_46 <- c("nt_coverage_values/coverage_test_5_46.txt")
+v5_73 <- c("nt_coverage_values/coverage_test_5_73.txt")
+
+
+
+v1_15_nt_coverage <- import_modify_nt_coverage_data(v1_15)
+v1_51_nt_coverage <- import_modify_nt_coverage_data(v1_51)
+v2_83_nt_coverage <- import_modify_nt_coverage_data(v2_83)
+v3_103_nt_coverage <- import_modify_nt_coverage_data(v3_103)
+v3_82_nt_coverage <- import_modify_nt_coverage_data(v3_82)
+v3_99_nt_coverage <- import_modify_nt_coverage_data(v3_99)
+v4_20_nt_coverage <- import_modify_nt_coverage_data(v4_20)
+v4_22_nt_coverage <- import_modify_nt_coverage_data(v4_22)
+v4_68_nt_coverage <- import_modify_nt_coverage_data(v4_68)
+v5_46_nt_coverage <- import_modify_nt_coverage_data(v5_46)
+v5_73_nt_coverage <- import_modify_nt_coverage_data(v5_73)
+
+#### prophage coords
+# ChPeak_MDA_MAG_00002_000000000083  2036-32877
+# ChPeak_MDA_MAG_00001_000000000015  16621-31240
+# ChPeak_MDA_Bin_00004_000000000022  0-8112
+####
+
+v1_15_nt_coverage_prophage <- subset(v1_15_nt_coverage, nt_position > 16620 & nt_position < 31241)
+v2_83_nt_coverage_prophage <- subset(v2_83_nt_coverage, nt_position > 2035 & nt_position < 32878)
+v4_22_nt_coverage_prophage <- subset(v4_22_nt_coverage, nt_position > 0 & nt_position < 8112)
+
+nt_viral_coverage_all <- lapply(ls(pattern="v[0-9]_[0-9]+_nt"), function(x) get(x))
+names(nt_viral_coverage_all) <- c("v1_15_full_contig", "v1_15_prophage", "v1_51", "v2_83_full_contig", "v2_83_prophage", "v3_103", "v3_82", "v3_99", "v4_20", "v4_22_full_contig", "v4_22_prophage", "v4_68", "v5_46", "v5_73")
+
+
+## remove epilimnion data
+#nt_viral_coverage_all <- nt_viral_coverage
+nt_viral_coverage = list()
+for(i in 1:length(nt_viral_coverage_all)){
+  nt_viral_coverage[[i]] <- subset(nt_viral_coverage_all[[i]], fraction != "Epilimnion")
+}
+
+names(nt_viral_coverage) <- c("v1_15_full_contig", "v1_15_prophage", "v1_51", "v2_83_full_contig", "v2_83_prophage", "v3_103", "v3_82", "v3_99", "v4_20", "v4_22_full_contig", "v4_22_prophage", "v4_68", "v5_46", "v5_73")
+```
+
+## plot nt coverage data
+
+```{r}
+
+for(i in 1:length(nt_viral_coverage)){
+  nt_viral_coverage[[i]]$new_norm_coverage2 <- nt_viral_coverage[[i]]$norm_coverage*10000 + 1
+  p <- ggplot(subset(nt_viral_coverage[[i]], year %in% c(2005, 2007, 2008, 2009, 2012, 2013)),
+  #p <- ggplot(aggregate(new_norm_coverage2 ~ nt_position + year + season + seasonYear, data = subset(nt_viral_coverage[[i]], year %in% c(2005, 2007, 2008, 2009, 2012, 2013)), FUN= "median"),
+            aes(x = nt_position, y = new_norm_coverage2, group = seasonYear, color = season)) + scale_y_log10() + geom_smooth() +
+    #geom_line(size = 1) + 
+    facet_grid(. ~ year) + ggtitle(names(nt_viral_coverage)[i]) + xlab("nt position") + ylab("Normalized coverage - GAM smoothed") +
+  ggtitle(paste("nt Coverage of ", names(nt_viral_coverage)[i], sep = " ")) +
+  theme_bw() +
+  theme(plot.title = element_text(size = 20, face = "bold"),
+        text = element_text(size = 20),
+        axis.title = element_text(face="bold"),
+        axis.text.x=element_text(size = 10, angle = 45, hjust = 1))
+  pdf(paste(names(nt_viral_coverage)[i], "_nt.pdf", sep = ""), width = 16, height = 8)
+  print(p)
+  dev.off()
+}
+
+
+pdf(paste(names(nt_viral_coverage)[1], "_w_prophage_lines.pdf", sep = ""), width = 16, height = 8)
+nt_viral_coverage[[1]]$new_norm_coverage2 <- nt_viral_coverage[[1]]$norm_coverage*10000 + 1
+ggplot(subset(nt_viral_coverage[[1]], year %in% c(2005, 2007, 2008, 2009, 2012, 2013)), 
+#ggplot(aggregate(new_norm_coverage ~ nt_position + year + season + seasonYear, data = subset(nt_viral_coverage[[1]], year %in% c(2005, 2007, 2008, 2009, 2012, 2013)), FUN= "median"), 
+            aes(x = nt_position, y = new_norm_coverage2, group = seasonYear, color = season)) + scale_y_log10() + geom_smooth() +
+  #geom_line(size = 1) + 
+  facet_grid(. ~ year) + ggtitle(names(nt_viral_coverage)[1]) + geom_vline(xintercept = 16621, linetype = "dashed") + geom_vline(xintercept = 31240, linetype = "dashed") + xlab("nt position") + ylab("Normalized coverage - GAM smoothed") +
+  ggtitle(paste("nt Coverage of ", names(nt_viral_coverage)[1], sep = " ")) +
+  theme_bw() +
+  theme(plot.title = element_text(size = 20, face = "bold"),
+        text = element_text(size = 20),
+        axis.title = element_text(face="bold"),
+        axis.text.x=element_text(size = 10, angle = 45, hjust = 1))
+dev.off()
+
+pdf(paste(names(nt_viral_coverage)[4], "_w_prophage_lines.pdf", sep = ""), width = 16, height = 8)
+nt_viral_coverage[[4]]$new_norm_coverage2 <- nt_viral_coverage[[4]]$norm_coverage*10000 + 1
+ggplot(subset(nt_viral_coverage[[4]], year %in% c(2005, 2007, 2008, 2009, 2012, 2013)), 
+#ggplot(aggregate(new_norm_coverage ~ nt_position + year + season + seasonYear, data = subset(nt_viral_coverage[[4]], year %in% c(2005, 2007, 2008, 2009, 2012, 2013)), FUN= "median"),
+            aes(x = nt_position, y = new_norm_coverage2, group = seasonYear, color = season)) + scale_y_log10() + geom_smooth() +
+  #geom_line(size = 1) + 
+  facet_grid(. ~ year) + ggtitle(names(nt_viral_coverage)[4]) + geom_vline(xintercept = 2036, linetype = "dashed") + geom_vline(xintercept = 32877, linetype = "dashed") + xlab("nt position") + ylab("Normalized coverage - GAM smoothed") +
+  ggtitle(paste("nt Coverage of ", names(nt_viral_coverage)[4], sep = " ")) +
+  theme_bw() +
+  theme(plot.title = element_text(size = 20, face = "bold"),
+        text = element_text(size = 20),
+        axis.title = element_text(face="bold"),
+        axis.text.x=element_text(size = 10, angle = 45, hjust = 1))
+dev.off()
+
+#aggregate(new_norm_coverage2 ~ nt_position, data = subset(nt_viral_coverage[[4]], year == "2005"), FUN = "median")
+
+pdf(paste(names(nt_viral_coverage)[10], "_w_prophage_lines.pdf", sep = ""), width = 16, height = 8)
+nt_viral_coverage[[10]]$new_norm_coverage2 <- nt_viral_coverage[[10]]$norm_coverage*10000 + 1
+ggplot(subset(nt_viral_coverage[[10]], year %in% c(2005, 2007, 2008, 2009, 2012, 2013)), 
+#ggplot(aggregate(new_norm_coverage ~ nt_position + year + season + seasonYear, data = subset(nt_viral_coverage[[10]], year %in% c(2005, 2007, 2008, 2009, 2012, 2013)), FUN= "median"),
+            aes(x = nt_position, y = new_norm_coverage2, group = seasonYear, color = season)) + scale_y_log10() + geom_smooth() +
+  #geom_line(size = 1) + 
+  facet_grid(. ~ year) + ggtitle(names(nt_viral_coverage)[10]) + geom_vline(xintercept = 0, linetype = "dashed") + geom_vline(xintercept = 8112, linetype = "dashed") + xlab("nt position") + ylab("Normalized coverage - GAM smoothed") +
+  ggtitle(paste("nt Coverage of ", names(nt_viral_coverage)[10], sep = " ")) +
+  theme_bw() +
+  theme(plot.title = element_text(size = 20, face = "bold"),
+        text = element_text(size = 20),
+        axis.title = element_text(face="bold"),
+        axis.text.x=element_text(size = 10, angle = 45, hjust = 1))
+dev.off()
+
+
+
+
+subset(nt_viral_coverage_AVE[3])
+
+ggplot(nt_viral_coverage[3], aes(x = date, y = new_norm_coverage, group = source, color = source)) + scale_y_log10() + geom_line(size = 2) + xlab("Sampling Date") + ylab("Median normalized coverage") +
+  ggtitle(paste("Coverage of miniMG-identified Chlorobi Genome and", names(virus_host_coverage_no_2010_2017)[i], sep = " ")) +
+  theme_bw() +
+  theme(plot.title = element_text(size = 20, face = "bold"),
+        text = element_text(size = 20),
+        axis.title = element_text(face="bold"),
+        axis.text.x=element_text(size = 6, angle = 45, hjust = 1)) +
+  scale_color_manual(values = c("#2c7bb6", "#ef8a62")) + geom_point(data = subset(virus_host_coverage_no_2010_2017_agg[[i]], POS > 0), mapping = aes(x = date, y = POS), size = 1.5, color = "black", shape = 21, fill = "white", stroke = 1.5) 
+```
+
+## Average nt data
+
+```{r}
+nt_viral_coverage_AVE = list()
+for(i in 1:length(nt_viral_coverage)){
+  nt_viral_coverage[[i]]$contig2 <- paste(head(strsplit(nt_viral_coverage[[i]]$contig[1], "_", fixed = TRUE)[[1]], -2), collapse = "_")
+  
+  nt_viral_coverage_AVE[[i]] <- aggregate(norm_coverage ~ sample + location + date + fraction + month + day + year + season + ReadDepth + contig2, data = nt_viral_coverage[[i]], FUN= "mean")
+
+  names(nt_viral_coverage_AVE)[i] <- names(nt_viral_coverage)[i]
+}
+#1132770
+for(i in 1:length(nt_viral_coverage_AVE)){
+  colnames(nt_viral_coverage_AVE[[i]]) <- gsub("contig2", "contig", colnames(nt_viral_coverage_AVE[[i]]))
+  nt_viral_coverage_AVE[[i]]$seasonYear <- paste(nt_viral_coverage_AVE[[i]]$season, nt_viral_coverage_AVE[[i]]$year, sep = "")
+  nt_viral_coverage_AVE[[i]]$new_norm_coverage <- nt_viral_coverage_AVE[[i]]$norm_coverage + 1
+}
+
+```
+
+## pull bin coverage information
+
+```{r}
+#coverage_values <- read.table("old_m_um_remapped_new_data_renamed_pooled_remapped_merged_PROFILES-COVs.txt", header = TRUE, row.names = 1)
+coverage_values <- read.table("MDA_all_coverages-COVs.txt", header = TRUE, row.names = 1)
+
+temp <- data.frame(t(coverage_values))
+rownames(temp) <- gsub("a", "", rownames(temp))
+metadata1 <- metadata[rownames(temp),]
+temp2 <- cbind(temp, metadata1)
+num_reads2 <- data.frame(num_reads_new[as.character(temp2$sample),])
+colnames(num_reads2) <- c("ReadDepth")
+rownames(num_reads2) <- as.character(temp2$sample)
+temp3 <- cbind(temp2, num_reads2)
+temp3$ReadDepth <- factor(temp3$ReadDepth)
+temp4 <- melt(temp3)
+colnames(temp4) <- gsub("value", "coverage", colnames(temp4))
+colnames(temp4) <- gsub("variable", "contig", colnames(temp4))
+temp4$ReadDepth <- as.numeric(levels(temp4$ReadDepth))[temp4$ReadDepth]
+temp4$norm_coverage <- (temp4$coverage/as.numeric(temp4$ReadDepth))*10000
+mDate <- format(as.Date(temp4$date, format = "%m/%d/%Y"), "20%y/%m/%d")
+temp4$date <- mDate
+temp4$date <- factor(temp4$date, levels = unique(sort(mDate)))
+colnames(temp4) <- gsub("split_name", "contig", colnames(temp4))
+temp4$seasonYear <- paste(temp4$season, temp4$year, sep = "")
+temp4$new_norm_coverage <- temp4$norm_coverage + 1
+
+bin_coverage_values <- subset(subset(temp4, fraction != "Epilimnion"), sample %in% setdiff(temp4$sample, c(remove_SAGs, remove_controls_list)))
+
+```
+
+## plot virus vs bin coverage
+
+```{r}
+
+pull_bin <- function(x, y){
+  return(x[grep(y, x$contig),])
+}
+##
+
+##
+coverage_values_w_metadata_cleaned_MAG1 <- pull_bin(bin_coverage_values, "_00001_")
+coverage_values_w_metadata_cleaned_MAG2 <- pull_bin(bin_coverage_values, "_00002_")
+coverage_values_w_metadata_cleaned_MAG3 <- pull_bin(bin_coverage_values, "_00003_")
+coverage_values_w_metadata_cleaned_Bin4 <- pull_bin(bin_coverage_values, "_00004_")
+coverage_values_w_metadata_cleaned_Bin5 <- pull_bin(bin_coverage_values, "_00005_")
+
+host_bin_coverage = list(coverage_values_w_metadata_cleaned_MAG1, coverage_values_w_metadata_cleaned_MAG2, coverage_values_w_metadata_cleaned_MAG3, coverage_values_w_metadata_cleaned_Bin4, coverage_values_w_metadata_cleaned_Bin5)
+names(host_bin_coverage) <- c("v1", "v2", "v3", "v4", "v5")
+
+virus_host_coverage = list()
+for(i in 1:length(names(nt_viral_coverage_AVE))){
+  temp_host <- host_bin_coverage[strsplit(names(nt_viral_coverage_AVE)[i], "_", fixed = TRUE)[[1]][1]][[1]]
+  temp_virus <- nt_viral_coverage_AVE[[i]]
+  temp_host$source <- "host"
+  temp_virus$source <- "virus"
+  temp_host$new_norm_coverage <- temp_host$norm_coverage*10000 + 1
+  temp_virus$new_norm_coverage <- temp_virus$norm_coverage*10000 + 1
+  virus_host_coverage[[i]] <- rbind(subset(temp_host, select = -coverage), temp_virus)
+}
+
+names(virus_host_coverage) <- names(nt_viral_coverage_AVE)
+
+### remove 2010 and 2017
+
+virus_host_coverage_no_2010_2017 = list()
+for(i in 1:length(virus_host_coverage)){
+  virus_host_coverage_no_2010_2017[[i]] <- subset(virus_host_coverage[[i]], year %in% c("2005", "2007", "2008", "2009", "2012", "2013"))
+}
+names(virus_host_coverage_no_2010_2017) <- names(virus_host_coverage)
+
+## add in BLAST VirSorter hits
+MDA_VS_matches <- read.table("MDA_viral_blast_hits.txt", header = FALSE, stringsAsFactors = FALSE)
+
+for (i in 1:length(virus_host_coverage_no_2010_2017)){
+  virus_host_coverage_no_2010_2017[[i]]$POS <- 0
+  contig <- as.character(unique(subset(virus_host_coverage_no_2010_2017[[i]], source != "host")$contig))
+  maxVal <- subset(virus_host_coverage_no_2010_2017[[i]][virus_host_coverage_no_2010_2017[[i]]$sample %in% MDA_VS_matches[MDA_VS_matches$V2 == contig,]$V1,], source != "host")$new_norm_coverage
+  
+  virus_host_coverage_no_2010_2017[[i]][rownames((subset(virus_host_coverage_no_2010_2017[[i]][virus_host_coverage_no_2010_2017[[i]]$sample %in% MDA_VS_matches[MDA_VS_matches$V2 == contig,]$V1,], source != "host"))),]$POS <- maxVal
+
+}
+
+### plotting#########
+virus_host_coverage_no_2010_2017_agg = list()
+virus_host_coverage_no_2010_2017_agg_temp = list()
+for(i in 1:length(virus_host_coverage_no_2010_2017)){
+virus_host_coverage_no_2010_2017_agg_temp[[i]] <- aggregate(new_norm_coverage ~ seasonYear + season + year + source + date + POS, data = virus_host_coverage_no_2010_2017[[i]], FUN= "median")
+
+  for(m in 1:length(unique(subset(virus_host_coverage_no_2010_2017_agg_temp[[i]], POS > 0)$date))){
+    temp <- subset(subset(virus_host_coverage_no_2010_2017_agg_temp[[i]], date == as.character(unique(subset(virus_host_coverage_no_2010_2017_agg_temp[[i]], POS > 0)$date)[m])), source != "host")
+    if(nrow(temp) > 1){
+      virus_host_coverage_no_2010_2017_agg_temp[[i]][rownames(temp),]$POS <- median(virus_host_coverage_no_2010_2017_agg_temp[[i]][rownames(temp),]$new_norm_coverage)
+    }
+  }
+
+temp <- aggregate(new_norm_coverage ~ seasonYear + season + year + source + date + POS, data = virus_host_coverage_no_2010_2017_agg_temp[[i]], FUN= "median")
+
+###
+temp <- aggregate(new_norm_coverage ~ seasonYear + season + year + source + date + POS, data = rbind(virus_host_coverage_no_2010_2017_agg_temp[[11]], subset(virus_host_coverage_no_2010_2017_agg_temp[[4]], source == "host")), FUN= "median")
+###
+
+
+virus_host_coverage_no_2010_2017_agg[[i]] <- temp[with(temp, order(source, date)), ]
+
+virus_host_coverage_no_2010_2017_agg[[i]]$ymin1 <- 0
+virus_host_coverage_no_2010_2017_agg[[i]]$ymax1 <- c(rep(0.9, 63), rep(0, 63))
+virus_host_coverage_no_2010_2017_agg[[i]]$xmin1 <- c(1:63, 1:63)
+virus_host_coverage_no_2010_2017_agg[[i]]$xmax1 <- (c(1:63, 1:63))+1
+
+
+
+p <- ggplot(virus_host_coverage_no_2010_2017_agg[[i]], aes(x = date, y = new_norm_coverage, group = source, color = source)) + scale_y_log10() + geom_line(size = 2) + xlab("Sampling Date") + ylab("Median normalized coverage") +
+  ggtitle(paste("Coverage of miniMG-identified Chlorobi Genome and", names(virus_host_coverage_no_2010_2017)[i], sep = " ")) +
+  theme_bw() +
+  theme(plot.title = element_text(size = 20, face = "bold"),
+        text = element_text(size = 20),
+        axis.title = element_text(face="bold"),
+        axis.text.x=element_text(size = 6, angle = 45, hjust = 1)) +
+  scale_color_manual(values = c("#2c7bb6", "#ef8a62")) + geom_point(data = subset(virus_host_coverage_no_2010_2017_agg[[i]], POS > 0), mapping = aes(x = date, y = POS), size = 1.5, color = "black", shape = 21, fill = "white", stroke = 1.5) 
+
+p2 <- p + geom_rect(data = virus_host_coverage_no_2010_2017_agg[[i]], aes(xmin=xmin1, xmax=xmax1, ymin=ymin1, ymax=ymax1, fill= season), color = NA) + scale_fill_manual(values = c("black", "dark grey", "light grey")) +
+  geom_vline(xintercept = grep("2007", virus_host_coverage_no_2010_2017_agg[[i]]$date)[1], linetype = "dashed") +
+  geom_vline(xintercept = grep("2008", virus_host_coverage_no_2010_2017_agg[[i]]$date)[1], linetype = "dashed") +
+  geom_vline(xintercept = grep("2009", virus_host_coverage_no_2010_2017_agg[[i]]$date)[1], linetype = "dashed") +
+  geom_vline(xintercept = grep("2012", virus_host_coverage_no_2010_2017_agg[[i]]$date)[1], linetype = "dashed") +
+  geom_vline(xintercept = grep("2013", virus_host_coverage_no_2010_2017_agg[[i]]$date)[1], linetype = "dashed")
+  pdf(paste(names(virus_host_coverage_no_2010_2017)[i], ".pdf", sep = ""), width = 16, height = 8)
+  print(p2)
+  dev.off()
+}
+
+```
+
+```{r}
+
+v4_20_contig_matches <- read.table("v4_20_contig_matches.txt", header = TRUE)
+v4_20_contig_matches$length <- v4_20_contig_matches$stop - v4_20_contig_matches$start
+
+
+temp_length <- aggregate(length ~ contig, data = v4_20_contig_matches, FUN= "sum")
+
+IMG_map <- read.table("IMG_sample_map.txt", header = FALSE, row.names = 2)
+IMG_map_full <- cbind(IMG_map, metadata[rownames(IMG_map),])
+IMG_map_full$year[1:4] <- "2009"
+IMG_map_full$season[1:4] <- "summer"
+IMG_map_full$sample[1:4] <- c("HZHX", "HZHZ", "HZIC", "HZIF")
+
+#v4_20_contig_matches_m <- melt(v4_20_contig_matches)
+#v4_20_contig_matches_m$contig <- factor(v4_20_contig_matches_m$contig, levels = unique(temp_length[order(temp_length$length),]$contig))
+temp <- subset(v4_20_contig_matches, contig %in% c("v4_22", "Ga0214227_1000046"))
+temp$orderM <- c(1, rep(2, 10))
+
+v4_20_contig_matches$orderM <- 1
+for(i in 1:length(v4_20_contig_matches$contig)){
+  v4_20_contig_matches$orderM[i] <- grep(v4_20_contig_matches$contig[i], unique(temp_length[order(temp_length$length),]$contig))
+}
+
+#strsplit(as.character(v4_20_contig_matches$contig), "_")
+v4_20_contig_matches$colorM <- "others"
+v4_20_contig_matches$colorM[1] <- "v4_20"
+#aes(value, contig, shape = variable)
+ggplot(v4_20_contig_matches) +
+        #geom_line(aes(group = contig)) +
+        #geom_point(aes(color = variable, size = 0.5)) + 
+        geom_segment(aes(x = start, y = orderM, xend = stop, yend = orderM, color = colorM)) +
+        scale_color_manual(values = c("black", "red")) +
+  labs(title = "Matching viral contigs to 04_20") +
+        theme_minimal() +
+        theme(axis.title = element_blank(),
+              panel.grid.major.x = element_blank(),
+              panel.grid.minor = element_blank(),
+              legend.title = element_blank(),
+              legend.background = element_blank(),
+              plot.title = element_text(size = 20, margin = margin(b = 10)),
+              plot.subtitle = element_text(size = 10, color = "darkslategrey", margin = margin(b = 25)),
+              plot.caption = element_text(size = 8, margin = margin(t = 10), color = "grey70", hjust = 0))
+
+
+
+######## 02_83
+
+v2_83_contig_matches <- read.table("02_83_combined_blast_results_R.txt", header = TRUE, stringsAsFactors = FALSE)
+v2_83_contig_matches$length <- abs(v2_83_contig_matches$stop - v2_83_contig_matches$start)
+
+
+temp_length <- aggregate(length ~ contig, data = v2_83_contig_matches, FUN= "sum")
+temp_length <- rbind(c("v2_83", 54679), temp_length)
+temp_length$length <- as.numeric(temp_length$length)
+
+#v4_20_contig_matches_m <- melt(v4_20_contig_matches)
+#v4_20_contig_matches_m$contig <- factor(v4_20_contig_matches_m$contig, levels = unique(temp_length[order(temp_length$length),]$contig))
+#???????temp <- subset(v2_83_contig_matches, contig %in% c("v2_83", "Ga0214227_1000046"))
+#temp$orderM <- c(1, rep(2, 10))
+
+v2_83_contig_matches <- rbind(c("v2_83", 1, 54679, 54679), v2_83_contig_matches)
+v2_83_contig_matches$start <- as.numeric(v2_83_contig_matches$start)
+v2_83_contig_matches$stop <- as.numeric(v2_83_contig_matches$stop)
+v2_83_contig_matches$length <- as.numeric(v2_83_contig_matches$length)
+v2_83_contig_matches$contig <- factor(v2_83_contig_matches$contig)
+v2_83_contig_matches$orderM <- 1
+for(i in 1:length(v2_83_contig_matches$contig)){
+  v2_83_contig_matches$orderM[i] <- grep(v2_83_contig_matches$contig[i], unique(temp_length[order(temp_length$length),]$contig))
+}
+
+v2_83_contig_matches$colorM <- "others"
+v2_83_contig_matches$colorM[1] <- "v2_83"
+#aes(value, contig, shape = variable)
+ggplot(v2_83_contig_matches) +
+        #geom_line(aes(group = contig)) +
+        #geom_point(aes(color = variable, size = 0.5)) + 
+        geom_segment(aes(x = start, y = orderM, xend = stop, yend = orderM, color = colorM)) +
+        scale_color_manual(values = c("black", "red")) +
+  labs(title = "Matching viral contigs to 02_83") +
+        theme_minimal() +
+        theme(axis.title = element_blank(),
+              panel.grid.major.x = element_blank(),
+              panel.grid.minor = element_blank(),
+              legend.title = element_blank(),
+              legend.background = element_blank(),
+              plot.title = element_text(size = 20, margin = margin(b = 10)),
+              plot.subtitle = element_text(size = 10, color = "darkslategrey", margin = margin(b = 25)),
+              plot.caption = element_text(size = 8, margin = margin(t = 10), color = "grey70", hjust = 0))
+
+
+
+
+strsplit(as.character(v2_83_contig_matches$contig), "_")
+
+```
+
+
+## compare coverages of bins 2 and 4
+
+
+```{r}
+MAG2_gene_coverages <- read.table("MAG2_gene_coverages.txt", header = TRUE, row.names = 1)
+
+
+temp <- data.frame(t(MAG2_gene_coverages))
+rownames(temp) <- gsub("a", "", rownames(temp))
+metadata1 <- metadata[rownames(temp),]
+temp2 <- cbind(temp, metadata1)
+num_reads2 <- data.frame(num_reads_new[as.character(temp2$sample),])
+colnames(num_reads2) <- c("ReadDepth")
+rownames(num_reads2) <- as.character(temp2$sample)
+temp3 <- cbind(temp2, num_reads2)
+temp3$ReadDepth <- factor(temp3$ReadDepth)
+temp4 <- melt(temp3)
+colnames(temp4) <- gsub("value", "coverage", colnames(temp4))
+colnames(temp4) <- gsub("variable", "gene_number", colnames(temp4))
+temp4$ReadDepth <- as.numeric(levels(temp4$ReadDepth))[temp4$ReadDepth]
+temp4$norm_coverage <- (temp4$coverage/as.numeric(temp4$ReadDepth))*10000
+mDate <- format(as.Date(temp4$date, format = "%m/%d/%Y"), "20%y/%m/%d")
+temp4$date <- mDate
+temp4$date <- factor(temp4$date, levels = unique(sort(mDate)))
+colnames(temp4) <- gsub("split_name", "contig", colnames(temp4))
+temp4$seasonYear <- paste(temp4$season, temp4$year, sep = "")
+temp4$new_norm_coverage <- temp4$norm_coverage + 1
+
+MAG2_gene_coverages_formatted <- subset(subset(temp4, fraction != "Epilimnion"), sample %in% setdiff(temp4$sample, c(remove_SAGs, remove_controls_list)))
+
+MAG2_gene_coverages_formatted$gene_number <- gsub("X", "", MAG2_gene_coverages_formatted$gene_number)
+
+
+### calculate average genome coverage... per sample?
+MAG2_gene_coverages_formatted$mean_coverage <- 1
+
+
+for (i in 1:length(unique(MAG2_gene_coverages_formatted$sample))){
+  MAG2_gene_coverages_formatted[MAG2_gene_coverages_formatted$sample == unique(MAG2_gene_coverages_formatted$sample)[i], ]$mean_coverage <- mean(subset(MAG2_gene_coverages_formatted, sample == unique(MAG2_gene_coverages_formatted$sample)[i])$coverage)
+}
+
+
+MAG2_gene_coverages_formatted$norm_gene_coverage <- MAG2_gene_coverages_formatted$coverage/MAG2_gene_coverages_formatted$mean_coverage
+
+
+
+
+###### bin 4
+
+Bin4_gene_coverages <- read.table("Bin4_gene_coverages.txt", header = TRUE, row.names = 1)
+
+temp <- data.frame(t(Bin4_gene_coverages))
+rownames(temp) <- gsub("a", "", rownames(temp))
+metadata1 <- metadata[rownames(temp),]
+temp2 <- cbind(temp, metadata1)
+num_reads2 <- data.frame(num_reads_new[as.character(temp2$sample),])
+colnames(num_reads2) <- c("ReadDepth")
+rownames(num_reads2) <- as.character(temp2$sample)
+temp3 <- cbind(temp2, num_reads2)
+temp3$ReadDepth <- factor(temp3$ReadDepth)
+temp4 <- melt(temp3)
+colnames(temp4) <- gsub("value", "coverage", colnames(temp4))
+colnames(temp4) <- gsub("variable", "gene_number", colnames(temp4))
+temp4$ReadDepth <- as.numeric(levels(temp4$ReadDepth))[temp4$ReadDepth]
+temp4$norm_coverage <- (temp4$coverage/as.numeric(temp4$ReadDepth))*10000
+mDate <- format(as.Date(temp4$date, format = "%m/%d/%Y"), "20%y/%m/%d")
+temp4$date <- mDate
+temp4$date <- factor(temp4$date, levels = unique(sort(mDate)))
+colnames(temp4) <- gsub("split_name", "contig", colnames(temp4))
+temp4$seasonYear <- paste(temp4$season, temp4$year, sep = "")
+temp4$new_norm_coverage <- temp4$norm_coverage + 1
+
+Bin4_gene_coverages_formatted <- subset(subset(temp4, fraction != "Epilimnion"), sample %in% setdiff(temp4$sample, c(remove_SAGs, remove_controls_list)))
+
+Bin4_gene_coverages_formatted$gene_number <- gsub("X", "", Bin4_gene_coverages_formatted$gene_number)
+
+
+### calculate average genome coverage... per sample?
+Bin4_gene_coverages_formatted$mean_coverage <- 1
+
+
+
+for (i in 1:length(unique(Bin4_gene_coverages_formatted$sample))){
+  Bin4_gene_coverages_formatted[Bin4_gene_coverages_formatted$sample == unique(Bin4_gene_coverages_formatted$sample)[i], ]$mean_coverage <- mean(subset(Bin4_gene_coverages_formatted, sample == unique(Bin4_gene_coverages_formatted$sample)[i])$coverage)
+}
+
+
+Bin4_gene_coverages_formatted$norm_gene_coverage <- Bin4_gene_coverages_formatted$coverage/Bin4_gene_coverages_formatted$mean_coverage
+
+
+
+### box plot
+MAG2_gene_coverages_formatted$bin <- "MAG2"
+Bin4_gene_coverages_formatted$bin <- "Bin4"
+MAG2_gene_coverages_formatted$norm_gene_coverage2 <- MAG2_gene_coverages_formatted$norm_gene_coverage + 0.00001
+Bin4_gene_coverages_formatted$norm_gene_coverage2 <- Bin4_gene_coverages_formatted$norm_gene_coverage + 0.00001
+
+
+MAG2_gene_coverages_formatted2 <- subset(MAG2_gene_coverages_formatted, year %in% c("2005", "2007", "2008", "2009", "2012", "2013"))
+
+Bin4_gene_coverages_formatted2 <- subset(Bin4_gene_coverages_formatted, year %in% c("2005", "2007", "2008", "2009", "2012", "2013"))
+
+ggplot(rbind(MAG2_gene_coverages_formatted2, Bin4_gene_coverages_formatted2), aes(x = bin, y = norm_gene_coverage, fill = bin)) +
+        geom_boxplot(alpha=0.7) + #scale_y_log10() +
+        #scale_y_continuous(name = "title") +
+        scale_x_discrete(name = "Bin") + coord_cartesian(ylim = c(0, 5))  +
+        ggtitle("Normalized Gene Coverage") +
+        theme_bw() +
+        theme(plot.title = element_text(size = 14, family = "Tahoma", face = "bold"),
+              text = element_text(size = 12, family = "Tahoma"),
+              axis.title = element_text(face="bold"),
+              axis.text.x=element_text(size = 11)) +
+        scale_fill_brewer(palette = "Accent")
+
+#is.finite.data.frame <- function(obj){
+#    sapply(obj,FUN = function(x) all(is.finite(x)))
+#}
+
+#grep("FALSE", is.finite.data.frame(Bin4_gene_coverages_formatted$norm_gene_coverage))
+```
+
+
+
+
+

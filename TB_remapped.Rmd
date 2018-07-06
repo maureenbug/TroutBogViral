@@ -1,0 +1,1043 @@
+---
+title: "TB_remapped"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load packages
+
+```{r, message=FALSE}
+library(plyr)
+library(pheatmap)
+library(viridis)
+library(tidyverse)
+library(reshape2)
+library(RColorBrewer)
+```
+
+## Load and clean coverage data
+
+```{r}
+coverage_values <- read.table("old_m_um_remapped_new_data_renamed_pooled_remapped_merged_PROFILES-COVs.txt", header = TRUE, row.names = 1)
+num_reads <- read.table("num_reads.txt", header = TRUE)
+
+###
+add_metadata <- function(x){
+  metadata <- read.table("Bin1_coverages_R.txt", header = TRUE, row.names = 1)[, c("sample", "location", "date", "fraction")]
+  NCx <- ncol(metadata)
+  metadata[,(NCx+1):(NCx+3)] <- str_split_fixed(metadata$date, "/", 3)
+  colnames(metadata)[(NCx+1):(NCx+3)] <- c("month", "day", "year")
+  year2005 <- as.character(subset(metadata, year == "05")$sample)
+  year2007 <- as.character(subset(metadata, year == "07")$sample)
+  year2008 <- as.character(subset(metadata, year == "08")$sample)
+  year2009 <- as.character(subset(metadata, year == "09")$sample)
+  year2010 <- as.character(subset(metadata, year == "10")$sample)
+  year2012 <- as.character(subset(metadata, year == "12")$sample)
+  year2013 <- as.character(subset(metadata, year == "13")$sample)
+  year2017 <- as.character(subset(metadata, year == "17")$sample)
+  metadata$year <- as.character(metadata$sample)
+  metadata[metadata$year %in% year2005, "year"] <- "2005"
+  metadata[metadata$year %in% year2007, "year"] <- "2007"
+  metadata[metadata$year %in% year2008, "year"] <- "2008"
+  metadata[metadata$year %in% year2009, "year"] <- "2009"
+  metadata[metadata$year %in% year2010, "year"] <- "2010"
+  metadata[metadata$year %in% year2012, "year"] <- "2012"
+  metadata[metadata$year %in% year2013, "year"] <- "2013"
+  metadata[metadata$year %in% year2017, "year"] <- "2017"
+  spring <- as.character(subset(metadata, month %in% c("3", "4", "5"))$sample)
+  summer <- as.character(subset(metadata, month %in% c("6", "7", "8"))$sample)
+  fall <- as.character(subset(metadata, month %in% c("9", "10", "11"))$sample)
+  metadata$season <- as.character(metadata$sample)
+  metadata[metadata$season %in% spring, "season"] <- "spring"
+  metadata[metadata$season %in% summer, "season"] <- "summer"
+  metadata[metadata$season %in% fall, "season"] <- "fall"
+  metadata$year <- factor(metadata$year)
+  metadata$season <- factor(metadata$season)
+  add_sample <- metadata[35, ]
+  add_sample$sample <- gsub("IHSC1", "IHSC", add_sample$sample)
+  rownames(add_sample) <- gsub("IHSC1", "IHSC", rownames(add_sample))
+  metadata <- rbind(metadata, add_sample)
+  
+  temp <- data.frame(t(x))
+  rownames(temp) <- gsub("a", "", rownames(temp))
+
+  metadata1 <- metadata[rownames(temp),]
+  temp2 <- cbind(temp, metadata1)
+  add_sample <- num_reads[grep("IHSC1", rownames(num_reads)), ]
+  num_reads_new <- rbind(num_reads, add_sample)
+  rownames(num_reads_new)[length(rownames(num_reads_new))] <- "IHSC"
+  temp_rn <- c("1187478", "1187479", "1187486", "1187487", "1187488", "1187489", "1187490")
+  temp_values <- data.frame(c(1, 1, 1, 1, 1, 1, 1))
+  rownames(temp_values) <- c("1187478", "1187479", "1187486", "1187487", "1187488", "1187489", "1187490")
+  colnames(temp_values) <- "num_reads"
+  num_reads_new <- rbind(num_reads_new, temp_values)
+  num_reads2 <- data.frame(num_reads_new[as.character(temp2$sample),])
+  colnames(num_reads2) <- c("ReadDepth")
+  rownames(num_reads2) <- as.character(temp2$sample)
+  temp3 <- cbind(temp2, num_reads2)
+  temp3$ReadDepth <- factor(temp3$ReadDepth)
+  temp4 <- melt(temp3)
+  colnames(temp4) <- gsub("value", "coverage", colnames(temp4))
+  colnames(temp4) <- gsub("variable", "contig", colnames(temp4))
+  temp4$ReadDepth <- as.numeric(levels(temp4$ReadDepth))[temp4$ReadDepth]
+  temp4$norm_coverage <- (temp4$coverage/as.numeric(temp4$ReadDepth))*100
+  return(temp4)
+}
+remove_samples_and_contigs <- function(x){
+  weirdbin_contigs <- c("ChPeak_MDA_MAG_00003_000000000133", "ChPeak_MDA_MAG_00003_000000000131", 
+                      "ChPeak_MDA_Bin_00005_000000000083", "ChPeak_MDA_MAG_00003_000000000233", 
+                      "ChPeak_MDA_MAG_00003_000000000239", "ChPeak_MDA_Bin_00005_000000000016", 
+                      "ChPeak_MDA_MAG_00003_000000000111", "ChPeak_MDA_Bin_00005_000000000017", 
+                      "ChPeak_MDA_MAG_00003_000000000099", "ChPeak_MDA_Bin_00005_000000000078", 
+                      "ChPeak_MDA_MAG_00003_000000000163", "ChPeak_MDA_MAG_00003_000000000063", 
+                      "ChPeak_MDA_MAG_00003_000000000064", "ChPeak_MDA_MAG_00003_000000000241", 
+                      "ChPeak_MDA_MAG_00003_000000000058", "ChPeak_MDA_MAG_00003_000000000071", 
+                      "ChPeak_MDA_MAG_00003_000000000157")
+  remove_SAGs <- c("1132750", "1132751", "1132752", "1132753", "1132754", "1132755", "1132756", "1132758", "1132759", "1132760", "1132762", "1132764", "1132766", "1132767", "1132768", "1132769", "1132771", "1132772", "1132870", "1132871", "1132878", "1132879", "1132880", "1132881", "1132882", "1132883", "1132887", "1132889", "1132891", "1132892", "1133008", "1133010", "1133012", "1133015", "1133016", "1133017", "1133019", "1133024", "1133025", "1133026", "1133027", "1133028", "1133127", "1133128", "1133130", "1133131", "1133132", "1133133", "1133134", "1133135", "1133141", "1133142", "1133144", "1133146")
+  remove_controls_list <- c("1187478", "1187479", "1187486", "1187487", "1187488", "1187489", "1187490")
+  return(subset(x, sample %in% setdiff(x$sample, c(remove_SAGs, remove_controls_list))))
+}
+
+
+
+add_metadata2 <- function(x){
+  metadata <- read.table("Bin1_coverages_R.txt", header = TRUE, row.names = 1)[, c("sample", "location", "date", "fraction")]
+  NCx <- ncol(metadata)
+  metadata[,(NCx+1):(NCx+3)] <- str_split_fixed(metadata$date, "/", 3)
+  colnames(metadata)[(NCx+1):(NCx+3)] <- c("month", "day", "year")
+  year2005 <- as.character(subset(metadata, year == "05")$sample)
+  year2007 <- as.character(subset(metadata, year == "07")$sample)
+  year2008 <- as.character(subset(metadata, year == "08")$sample)
+  year2009 <- as.character(subset(metadata, year == "09")$sample)
+  year2010 <- as.character(subset(metadata, year == "10")$sample)
+  year2012 <- as.character(subset(metadata, year == "12")$sample)
+  year2013 <- as.character(subset(metadata, year == "13")$sample)
+  year2017 <- as.character(subset(metadata, year == "17")$sample)
+  metadata$year <- as.character(metadata$sample)
+  metadata[metadata$year %in% year2005, "year"] <- "2005"
+  metadata[metadata$year %in% year2007, "year"] <- "2007"
+  metadata[metadata$year %in% year2008, "year"] <- "2008"
+  metadata[metadata$year %in% year2009, "year"] <- "2009"
+  metadata[metadata$year %in% year2010, "year"] <- "2010"
+  metadata[metadata$year %in% year2012, "year"] <- "2012"
+  metadata[metadata$year %in% year2013, "year"] <- "2013"
+  metadata[metadata$year %in% year2017, "year"] <- "2017"
+  spring <- as.character(subset(metadata, month %in% c("3", "4", "5"))$sample)
+  summer <- as.character(subset(metadata, month %in% c("6", "7", "8"))$sample)
+  fall <- as.character(subset(metadata, month %in% c("9", "10", "11"))$sample)
+  metadata$season <- as.character(metadata$sample)
+  metadata[metadata$season %in% spring, "season"] <- "spring"
+  metadata[metadata$season %in% summer, "season"] <- "summer"
+  metadata[metadata$season %in% fall, "season"] <- "fall"
+  metadata$year <- factor(metadata$year)
+  metadata$season <- factor(metadata$season)
+  add_sample <- metadata[35, ]
+  add_sample$sample <- gsub("IHSC1", "IHSC", add_sample$sample)
+  rownames(add_sample) <- gsub("IHSC1", "IHSC", rownames(add_sample))
+  metadata <- rbind(metadata, add_sample)
+  temp <- x
+  temp$sample_name <- gsub("a", "", temp$sample_name)
+
+  metadata1 <- metadata[temp$sample_name,]
+  temp2 <- cbind(temp, metadata1)
+  add_sample <- num_reads[grep("IHSC1", rownames(num_reads)), ]
+  num_reads_new <- rbind(num_reads, add_sample)
+  rownames(num_reads_new)[length(rownames(num_reads_new))] <- "IHSC"
+  temp_rn <- c("1187478", "1187479", "1187486", "1187487", "1187488", "1187489", "1187490")
+  temp_values <- data.frame(c(1, 1, 1, 1, 1, 1, 1))
+  rownames(temp_values) <- c("1187478", "1187479", "1187486", "1187487", "1187488", "1187489", "1187490")
+  colnames(temp_values) <- "num_reads"
+  num_reads_new <- rbind(num_reads_new, temp_values)
+  num_reads2 <- data.frame(num_reads_new[as.character(temp2$sample),])
+  colnames(num_reads2) <- c("ReadDepth")
+  rownames(num_reads2) <- rownames(metadata1)
+  temp3 <- cbind(temp2, num_reads2)
+  temp3$ReadDepth <- factor(temp3$ReadDepth)
+  temp4 <- temp3
+  colnames(temp4) <- gsub("value", "coverage", colnames(temp4))
+  colnames(temp4) <- gsub("variable", "contig", colnames(temp4))
+  temp4$ReadDepth <- as.numeric(levels(temp4$ReadDepth))[temp4$ReadDepth]
+  temp4$norm_coverage <- (temp4$coverage/as.numeric(temp4$ReadDepth))*100
+  return(temp4)
+}
+###
+
+###
+coverage_values_w_metadata <- add_metadata(coverage_values)
+coverage_values_w_metadata_cleaned <- remove_samples_and_contigs(coverage_values_w_metadata)
+```
+
+## Separate out genome bins
+
+```{r}
+##
+pull_bin <- function(x, y){
+  return(x[grep(y, x$contig),])
+}
+##
+
+##
+coverage_values_w_metadata_cleaned_MAG1 <- pull_bin(coverage_values_w_metadata_cleaned, "_00001_")
+coverage_values_w_metadata_cleaned_MAG2 <- pull_bin(coverage_values_w_metadata_cleaned, "_00002_")
+coverage_values_w_metadata_cleaned_MAG3 <- pull_bin(coverage_values_w_metadata_cleaned, "00003")
+coverage_values_w_metadata_cleaned_Bin4 <- pull_bin(coverage_values_w_metadata_cleaned, "00004")
+coverage_values_w_metadata_cleaned_Bin5 <- pull_bin(coverage_values_w_metadata_cleaned, "00005")
+```
+
+## Separate out viral contigs
+
+```{r}
+##
+pull_viruses <- function(x){
+  viral_contigs <- c("ChPeak_MDA_Bin_00004_000000000020", "ChPeak_MDA_Bin_00004_000000000068", "ChPeak_MDA_Bin_00005_000000000073",
+                   "ChPeak_MDA_Bin_00005_000000000046", "ChPeak_MDA_MAG_00003_000000000103", "ChPeak_MDA_MAG_00003_000000000082",
+                   "ChPeak_MDA_MAG_00003_000000000099", "ChPeak_MDA_MAG_00001_000000000015", "ChPeak_MDA_MAG_00001_000000000051",
+                   "ChPeak_MDA_Bin_00004_000000000022", "ChPeak_MDA_MAG_00002_000000000083")
+  return(subset(x, contig %in% viral_contigs))
+}
+##
+
+##
+coverage_values_w_metadata_cleaned_viral <- pull_viruses(coverage_values_w_metadata_cleaned)
+```
+
+## viral nucleotide coverage
+
+```{r}
+viral_nt_coverage <- read.table("remapped_viral_contig_coverage.txt", header = TRUE)
+
+##
+pull_contig_add_metadata <- function(x, y){
+  colnames(x) <- gsub("split_name", "contig", colnames(x))
+  temp <- x[grep(y, x$contig),]
+  temp$sample_name <- gsub("a", "", temp$sample_name)
+  num_reads <- read.table("num_reads.txt", header = TRUE, row.names = 1)
+  metadata <- read.table("Bin1_coverages_R.txt", header = TRUE, row.names = 1)[, c("sample", "location", "date", "fraction")]
+  NCx <- ncol(metadata)
+  metadata[,(NCx+1):(NCx+3)] <- str_split_fixed(metadata$date, "/", 3)
+  colnames(metadata)[(NCx+1):(NCx+3)] <- c("month", "day", "year")
+  year2005 <- as.character(subset(metadata, year == "05")$sample)
+  year2007 <- as.character(subset(metadata, year == "07")$sample)
+  year2008 <- as.character(subset(metadata, year == "08")$sample)
+  year2009 <- as.character(subset(metadata, year == "09")$sample)
+  year2010 <- as.character(subset(metadata, year == "10")$sample)
+  year2012 <- as.character(subset(metadata, year == "12")$sample)
+  year2013 <- as.character(subset(metadata, year == "13")$sample)
+  year2017 <- as.character(subset(metadata, year == "17")$sample)
+  metadata$year <- as.character(metadata$sample)
+  metadata[metadata$year %in% year2005, "year"] <- "2005"
+  metadata[metadata$year %in% year2007, "year"] <- "2007"
+  metadata[metadata$year %in% year2008, "year"] <- "2008"
+  metadata[metadata$year %in% year2009, "year"] <- "2009"
+  metadata[metadata$year %in% year2010, "year"] <- "2010"
+  metadata[metadata$year %in% year2012, "year"] <- "2012"
+  metadata[metadata$year %in% year2013, "year"] <- "2013"
+  metadata[metadata$year %in% year2017, "year"] <- "2017"
+  spring <- as.character(subset(metadata, month %in% c("3", "4", "5"))$sample)
+  summer <- as.character(subset(metadata, month %in% c("6", "7", "8"))$sample)
+  fall <- as.character(subset(metadata, month %in% c("9", "10", "11"))$sample)
+  metadata$season <- as.character(metadata$sample)
+  metadata[metadata$season %in% spring, "season"] <- "spring"
+  metadata[metadata$season %in% summer, "season"] <- "summer"
+  metadata[metadata$season %in% fall, "season"] <- "fall"
+  metadata$year <- factor(metadata$year)
+  metadata$season <- factor(metadata$season)
+  add_sample <- metadata[35, ]
+  add_sample$sample <- gsub("IHSC1", "IHSC", add_sample$sample)
+  rownames(add_sample) <- gsub("IHSC1", "IHSC", rownames(add_sample))
+  metadata <- rbind(metadata, add_sample)
+  
+  metadata1 <- metadata[temp$sample_name, ]
+  temp2 <- cbind(temp, metadata1)
+  add_sample <- num_reads[grep("IHSC1", rownames(num_reads)), ]
+  num_reads_new <- rbind(num_reads, add_sample)
+  rownames(num_reads_new)[length(rownames(num_reads_new))] <- "IHSC"
+  temp_rn <- c("1187478", "1187479", "1187486", "1187487", "1187488", "1187489", "1187490")
+  temp_values <- data.frame(c(1, 1, 1, 1, 1, 1, 1))
+  rownames(temp_values) <- c("1187478", "1187479", "1187486", "1187487", "1187488", "1187489", "1187490")
+  colnames(temp_values) <- "num_reads"
+  num_reads_new <- rbind(num_reads_new, temp_values)
+  num_reads2 <- data.frame(num_reads_new[temp2$sample_name,])
+  colnames(num_reads2) <- c("ReadDepth")
+  temp3 <- cbind(temp2, num_reads2)
+  temp3$ReadDepth <- factor(temp3$ReadDepth)
+  temp4 <- melt(temp3)
+  temp4$norm_coverage <- (as.numeric(temp4$coverage)/as.numeric(temp4$ReadDepth))*100
+  return(temp4)
+}
+
+viral_nt_coverage_01_51 <- pull_contig_add_metadata(viral_nt_coverage, "ChPeak_MDA_MAG_00001_000000000051")
+colnames(viral_nt_coverage_01_51) <- gsub("sample_name", "sample", colnames(viral_nt_coverage_01_51))
+viral_nt_coverage_01_51_cleaned <- remove_samples_and_contigs(viral_nt_coverage_01_51)
+
+viral_nt_coverage_01_51_cleaned$nt_position_mod <- as.numeric(levels(viral_nt_coverage_01_51_cleaned$nt_position))[viral_nt_coverage_01_51_cleaned$nt_position]
+
+viral_nt_coverage_01_51_cleaned$nt_position_mod[viral_nt_coverage_01_51_cleaned$contig == "ChPeak_MDA_MAG_00001_000000000051_split_00002"] <- (viral_nt_coverage_01_51_cleaned$nt_position_mod[viral_nt_coverage_01_51_cleaned$contig == "ChPeak_MDA_MAG_00001_000000000051_split_00002"]) + 25457
+```
+
+## plotting viral coverage
+
+```{r}
+
+viral_nt_coverage_01_51_cleaned$seasonYear <- paste(viral_nt_coverage_01_51_cleaned$season, viral_nt_coverage_01_51_cleaned$year, sep = "")
+viral_nt_coverage_01_51_cleaned$new_norm_coverage <- viral_nt_coverage_01_51_cleaned$norm_coverage + 1
+
+ggplot(viral_nt_coverage_01_51_cleaned, 
+            aes(x = nt_position_mod, y = new_norm_coverage, group = seasonYear, color = season)) + scale_y_log10() + geom_smooth() + facet_grid(. ~ year)
+
+ggplot(viral_nt_coverage_01_51_cleaned, 
+            aes(x = nt_position_mod, y = new_norm_coverage, group = seasonYear, color = season)) + scale_y_log10() + geom_point(size = 0.2) + facet_grid(. ~ year)
+
+
+viral_nt_coverage_01_51_cleaned_agg <- aggregate(new_norm_coverage ~ seasonYear + nt_position_mod + season + year, data = viral_nt_coverage_01_51_cleaned, FUN= "median")
+
+ggplot(viral_nt_coverage_01_51_cleaned_agg, 
+            aes(x = nt_position_mod, y = new_norm_coverage, group = seasonYear, color = season)) + scale_y_log10() + geom_point(size = 0.2) + facet_grid(. ~ year)
+
+ggplot(viral_nt_coverage_01_51_cleaned_agg, 
+            aes(x = nt_position_mod, y = new_norm_coverage, group = seasonYear, color = season)) + scale_y_log10() + geom_smooth() + facet_grid(. ~ year)
+```
+
+## coverage of a contig that is definitely microbial
+
+```{r}
+
+remapped_01_44_03_nt_coverage <- read.table("remapped_01_44_03.txt", header = TRUE)
+
+add_metadata <- function(x){
+  colnames(x) <- gsub("split_name", "contig", colnames(x))
+  temp <- x
+  temp$sample_name <- gsub("a", "", temp$sample_name)
+  
+  num_reads <- read.table("num_reads.txt", header = TRUE, row.names = 1)
+  metadata <- read.table("Bin1_coverages_R.txt", header = TRUE, row.names = 1)[, c("sample", "location", "date", "fraction")]
+  NCx <- ncol(metadata)
+  metadata[,(NCx+1):(NCx+3)] <- str_split_fixed(metadata$date, "/", 3)
+  colnames(metadata)[(NCx+1):(NCx+3)] <- c("month", "day", "year")
+  year2005 <- as.character(subset(metadata, year == "05")$sample)
+  year2007 <- as.character(subset(metadata, year == "07")$sample)
+  year2008 <- as.character(subset(metadata, year == "08")$sample)
+  year2009 <- as.character(subset(metadata, year == "09")$sample)
+  year2010 <- as.character(subset(metadata, year == "10")$sample)
+  year2012 <- as.character(subset(metadata, year == "12")$sample)
+  year2013 <- as.character(subset(metadata, year == "13")$sample)
+  year2017 <- as.character(subset(metadata, year == "17")$sample)
+  metadata$year <- as.character(metadata$sample)
+  metadata[metadata$year %in% year2005, "year"] <- "2005"
+  metadata[metadata$year %in% year2007, "year"] <- "2007"
+  metadata[metadata$year %in% year2008, "year"] <- "2008"
+  metadata[metadata$year %in% year2009, "year"] <- "2009"
+  metadata[metadata$year %in% year2010, "year"] <- "2010"
+  metadata[metadata$year %in% year2012, "year"] <- "2012"
+  metadata[metadata$year %in% year2013, "year"] <- "2013"
+  metadata[metadata$year %in% year2017, "year"] <- "2017"
+  spring <- as.character(subset(metadata, month %in% c("3", "4", "5"))$sample)
+  summer <- as.character(subset(metadata, month %in% c("6", "7", "8"))$sample)
+  fall <- as.character(subset(metadata, month %in% c("9", "10", "11"))$sample)
+  metadata$season <- as.character(metadata$sample)
+  metadata[metadata$season %in% spring, "season"] <- "spring"
+  metadata[metadata$season %in% summer, "season"] <- "summer"
+  metadata[metadata$season %in% fall, "season"] <- "fall"
+  metadata$year <- factor(metadata$year)
+  metadata$season <- factor(metadata$season)
+  add_sample <- metadata[35, ]
+  add_sample$sample <- gsub("IHSC1", "IHSC", add_sample$sample)
+  rownames(add_sample) <- gsub("IHSC1", "IHSC", rownames(add_sample))
+  metadata <- rbind(metadata, add_sample)
+  
+  metadata1 <- metadata[temp$sample_name, ]
+  temp2 <- cbind(temp, metadata1)
+  add_sample <- num_reads[grep("IHSC1", rownames(num_reads)), ]
+  num_reads_new <- rbind(num_reads, add_sample)
+  rownames(num_reads_new)[length(rownames(num_reads_new))] <- "IHSC"
+  temp_rn <- c("1187478", "1187479", "1187486", "1187487", "1187488", "1187489", "1187490")
+  temp_values <- data.frame(c(1, 1, 1, 1, 1, 1, 1))
+  rownames(temp_values) <- c("1187478", "1187479", "1187486", "1187487", "1187488", "1187489", "1187490")
+  colnames(temp_values) <- "num_reads"
+  num_reads_new <- rbind(num_reads_new, temp_values)
+  num_reads2 <- data.frame(num_reads_new[temp2$sample_name,])
+  colnames(num_reads2) <- c("ReadDepth")
+  temp3 <- cbind(temp2, num_reads2)
+  temp3$ReadDepth <- factor(temp3$ReadDepth)
+  temp3$coverage <- factor(temp3$coverage)
+  temp3$nt_position <- factor(temp3$nt_position)
+  temp4 <- melt(temp3)
+  temp4$norm_coverage <- (as.numeric(temp4$coverage)/as.numeric(temp4$ReadDepth))*100
+  return(temp4)
+}
+
+remapped_01_44_03_nt_coverage_wMD <- add_metadata(remapped_01_44_03_nt_coverage)
+
+colnames(remapped_01_44_03_nt_coverage_wMD) <- gsub("sample_name", "sample", colnames(remapped_01_44_03_nt_coverage_wMD))
+remapped_01_44_03_nt_coverage_wMD_cleaned <- remove_samples_and_contigs(remapped_01_44_03_nt_coverage_wMD)
+
+remapped_01_44_03_nt_coverage_wMD_cleaned$seasonYear <- paste(remapped_01_44_03_nt_coverage_wMD_cleaned$season, remapped_01_44_03_nt_coverage_wMD_cleaned$year, sep = "")
+remapped_01_44_03_nt_coverage_wMD_cleaned$new_norm_coverage <- remapped_01_44_03_nt_coverage_wMD_cleaned$norm_coverage + 1
+
+ggplot(remapped_01_44_03_nt_coverage_wMD_cleaned, 
+            aes(x = nt_position, y = new_norm_coverage, group = seasonYear, color = season)) + scale_y_log10() + geom_smooth() + facet_grid(. ~ year)
+
+
+
+remapped_01_44_03_nt_coverage_wMD_cleaned_agg <- aggregate(new_norm_coverage ~ seasonYear + nt_position + season + year, data = remapped_01_44_03_nt_coverage_wMD_cleaned, FUN= "median")
+
+
+remapped_01_44_03_nt_coverage_wMD_cleaned_agg$nt_position <- as.numeric(levels(remapped_01_44_03_nt_coverage_wMD_cleaned_agg$nt_position))[remapped_01_44_03_nt_coverage_wMD_cleaned_agg$nt_position]
+
+ggplot(remapped_01_44_03_nt_coverage_wMD_cleaned_agg, 
+            aes(x = nt_position, y = new_norm_coverage, group = seasonYear, color = season)) + scale_y_log10() + geom_smooth() + facet_grid(. ~ year)
+
+```
+
+## another microbe contig
+
+```{r}
+remapped_01_52_01_nt_coverage <- read.table("remapped_01_52_01.txt", header = TRUE)
+
+remapped_01_52_01_nt_coverage_wMD <- add_metadata(remapped_01_52_01_nt_coverage)
+
+colnames(remapped_01_52_01_nt_coverage_wMD) <- gsub("sample_name", "sample", colnames(remapped_01_52_01_nt_coverage_wMD))
+remapped_01_52_01_nt_coverage_wMD_cleaned <- remove_samples_and_contigs(remapped_01_52_01_nt_coverage_wMD)
+
+remapped_01_52_01_nt_coverage_wMD_cleaned$seasonYear <- paste(remapped_01_52_01_nt_coverage_wMD_cleaned$season, remapped_01_52_01_nt_coverage_wMD_cleaned$year, sep = "")
+remapped_01_52_01_nt_coverage_wMD_cleaned$new_norm_coverage <- remapped_01_52_01_nt_coverage_wMD_cleaned$norm_coverage + 1
+
+
+remapped_01_52_01_nt_coverage_wMD_cleaned_agg <- aggregate(new_norm_coverage ~ seasonYear + nt_position + season + year, data = remapped_01_52_01_nt_coverage_wMD_cleaned, FUN= "median")
+
+
+remapped_01_52_01_nt_coverage_wMD_cleaned_agg$nt_position <- as.numeric(levels(remapped_01_52_01_nt_coverage_wMD_cleaned_agg$nt_position))[remapped_01_52_01_nt_coverage_wMD_cleaned_agg$nt_position]
+
+ggplot(remapped_01_52_01_nt_coverage_wMD_cleaned_agg, 
+            aes(x = nt_position, y = new_norm_coverage, group = seasonYear, color = season)) + scale_y_log10() + geom_smooth() + facet_grid(. ~ year)
+```
+
+
+## add another split to the 01_44 contig
+
+```{r}
+remapped_01_44_04_nt_coverage <- read.table("remapped_01_44_04.txt", header = TRUE)
+
+remapped_01_44_04_nt_coverage_wMD <- add_metadata(remapped_01_44_04_nt_coverage)
+
+colnames(remapped_01_44_04_nt_coverage_wMD) <- gsub("sample_name", "sample", colnames(remapped_01_44_04_nt_coverage_wMD))
+remapped_01_44_04_nt_coverage_wMD_cleaned <- remove_samples_and_contigs(remapped_01_44_04_nt_coverage_wMD)
+
+remapped_01_44_04_nt_coverage_wMD_cleaned$seasonYear <- paste(remapped_01_44_04_nt_coverage_wMD_cleaned$season, remapped_01_44_04_nt_coverage_wMD_cleaned$year, sep = "")
+remapped_01_44_04_nt_coverage_wMD_cleaned$new_norm_coverage <- remapped_01_44_04_nt_coverage_wMD_cleaned$norm_coverage + 1
+
+
+remapped_01_44_04_nt_coverage_wMD_cleaned_agg <- aggregate(new_norm_coverage ~ seasonYear + nt_position + season + year, data = remapped_01_44_04_nt_coverage_wMD_cleaned, FUN= "median")
+
+
+remapped_01_44_04_nt_coverage_wMD_cleaned_agg$nt_position <- as.numeric(levels(remapped_01_44_04_nt_coverage_wMD_cleaned_agg$nt_position))[remapped_01_44_04_nt_coverage_wMD_cleaned_agg$nt_position]
+
+
+
+remapped_01_44_04_nt_coverage_wMD_cleaned_agg$nt_position_mod <- remapped_01_44_04_nt_coverage_wMD_cleaned_agg$nt_position + 22273
+remapped_01_44_03_nt_coverage_wMD_cleaned_agg$nt_position_mod <- remapped_01_44_03_nt_coverage_wMD_cleaned_agg$nt_position
+
+remapped_01_44_034_nt_coverage_wMD_cleaned_agg <- rbind(remapped_01_44_03_nt_coverage_wMD_cleaned_agg, remapped_01_44_04_nt_coverage_wMD_cleaned_agg)
+
+
+ggplot(remapped_01_44_034_nt_coverage_wMD_cleaned_agg, 
+            aes(x = nt_position_mod, y = new_norm_coverage, group = seasonYear, color = season)) + scale_y_log10() + geom_smooth() + facet_grid(. ~ year)
+```
+
+
+## plot matching viral seqs to 01_51
+
+```{r}
+
+viral_seq_lengths <- unique(read.table("viral_seq_lengths.txt", header = FALSE))
+rownames(viral_seq_lengths) <- viral_seq_lengths$V1
+full_BLAST_matches <- unique(read.table("full_matches.txt", header = FALSE, stringsAsFactors = FALSE))
+
+full_BLAST_matches_filtered <- c()
+for (i in 1:length(unique(full_BLAST_matches$V1))){
+  temp <- subset(full_BLAST_matches, V1 == unique(full_BLAST_matches$V1)[i])
+  full_BLAST_matches_filtered <- rbind(full_BLAST_matches_filtered, subset(temp, V4 == max(temp$V4)))
+}
+
+full_BLAST_matches <- full_BLAST_matches_filtered
+viral_seq_lengths <- viral_seq_lengths[full_BLAST_matches$V1,]
+
+colnames(full_BLAST_matches) <- gsub("V7", "TBstart", colnames(full_BLAST_matches))
+colnames(full_BLAST_matches) <- gsub("V8", "TBstop", colnames(full_BLAST_matches))
+colnames(full_BLAST_matches) <- gsub("V9", "MDAstart", colnames(full_BLAST_matches))
+colnames(full_BLAST_matches) <- gsub("V10", "MDAstop", colnames(full_BLAST_matches))
+
+full_BLAST_matches$TB_length <- viral_seq_lengths$V2 - 1
+
+## 01_51 length is 50915
+
+full_BLAST_matches$newSTART <- full_BLAST_matches$MDAstart
+full_BLAST_matches$newSTOP <- full_BLAST_matches$MDAstop
+full_BLAST_matches$newMIN <- 1
+full_BLAST_matches$newMAX <- full_BLAST_matches$TB_length
+
+for (i in 1:nrow(full_BLAST_matches)){
+if ((full_BLAST_matches$MDAstart[i] > full_BLAST_matches$MDAstop[i]) == TRUE) {
+  full_BLAST_matches$newMIN[i] <-  full_BLAST_matches$MDAstop[i] - (full_BLAST_matches$TB_length[i] - full_BLAST_matches$TBstop[i])
+  full_BLAST_matches$newSTART[i] <- full_BLAST_matches$MDAstop[i]
+  full_BLAST_matches$newSTOP[i] <- full_BLAST_matches$MDAstart[i]
+  full_BLAST_matches$newMAX[i] <- full_BLAST_matches$MDAstart[i] + full_BLAST_matches$TBstart[i]
+} else {
+  full_BLAST_matches$newMIN[i] <-  full_BLAST_matches$MDAstart[i] - full_BLAST_matches$TBstart[i]
+  full_BLAST_matches$newSTART[i] <- full_BLAST_matches$MDAstart[i]
+  full_BLAST_matches$newSTOP[i] <- full_BLAST_matches$MDAstop[i]
+  full_BLAST_matches$newMAX[i] <- full_BLAST_matches$MDAstop[i] + (full_BLAST_matches$TB_length[i] - full_BLAST_matches$TBstop[i])
+}
+}
+temp01_51 <- data.frame(t(c("MDA_01_51", 1, 50915, 1, 50915)), stringsAsFactors = FALSE)
+temp01_51[,2:5] <- as.numeric(temp01_51[,2:5])
+colnames(temp01_51) <- colnames(full_BLAST_matches[, c(1, 14:17)])
+plot_data <- rbind(temp01_51, full_BLAST_matches[, c(1, 14:17)])
+colnames(plot_data) <- gsub("V1", "contig", colnames(plot_data))
+
+rownames(viral_seq_lengths[order(viral_seq_lengths$V2),])
+plot_data_m <- melt(plot_data)
+plot_data_m$contig <- factor(plot_data_m$contig, levels = c(rownames(viral_seq_lengths[order(viral_seq_lengths$V2),]), "MDA_01_51"))
+
+ggplot(plot_data_m, aes(value, contig, shape = variable)) +
+        geom_line(aes(group = contig)) +
+        geom_point(aes(color = variable, size = 2)) + scale_shape_manual(values = c(16, 16, 1, 1)) + 
+        scale_color_manual(values = c("#0072B2", "#D55E00", "#0072B2", "#D55E00")) +
+  labs(title = "Matching viral contigs to 01_51") +
+        theme_minimal() +
+        theme(axis.title = element_blank(),
+              panel.grid.major.x = element_blank(),
+              panel.grid.minor = element_blank(),
+              legend.title = element_blank(),
+              legend.background = element_blank(),
+              plot.title = element_text(size = 20, margin = margin(b = 10)),
+              plot.subtitle = element_text(size = 10, color = "darkslategrey", margin = margin(b = 25)),
+              plot.caption = element_text(size = 8, margin = margin(t = 10), color = "grey70", hjust = 0)) + annotate("rect", xmin = 40943, xmax = 42184, ymin = 0, ymax = Inf, alpha = .2) + annotate("rect", xmin = 36898, xmax = 38037, ymin = 0, ymax = Inf, alpha = .2)
+
+NODE_651_length_8300_cov_1_385905
+## ^^ 40-42k is terminase; 36-38k is coat protein
+
+
+
+```
+
+
+## plot all matching contigs to 01_51
+
+```{r}
+
+all_contigs_BLAST_matches <- unique(read.table("full_matches_all_contigs.txt", header = FALSE, stringsAsFactors = FALSE))
+
+colnames(all_contigs_BLAST_matches) <- gsub("V7", "TBstart", colnames(all_contigs_BLAST_matches))
+colnames(all_contigs_BLAST_matches) <- gsub("V8", "TBstop", colnames(all_contigs_BLAST_matches))
+colnames(all_contigs_BLAST_matches) <- gsub("V9", "MDAstart", colnames(all_contigs_BLAST_matches))
+colnames(all_contigs_BLAST_matches) <- gsub("V10", "MDAstop", colnames(all_contigs_BLAST_matches))
+all_contigs_BLAST_matches_original <- all_contigs_BLAST_matches
+all_contigs_BLAST_matches <- subset(all_contigs_BLAST_matches, V3 > 98)
+all_contigs_BLAST_matches <- subset(all_contigs_BLAST_matches, V4 > 1000)
+
+matching_viral_contigs <- str_split_fixed(gsub("cov_1_", "cov_1.", full_BLAST_matches$V1), "-", 2)[,1]
+
+all_contigs_BLAST_matches$BV <- all_contigs_BLAST_matches$V1
+matching_viral_contigs <- str_split_fixed(matching_viral_contigs, "_gene", 3)[,1]
+all_contigs_BLAST_matches[all_contigs_BLAST_matches$BV %in% matching_viral_contigs, "BV"] <- "Viral"
+all_contigs_BLAST_matches[all_contigs_BLAST_matches$BV %in% setdiff(all_contigs_BLAST_matches$BV, "Viral"), "BV"] <- "notViral"
+
+all_contigs_BLAST_matches$MG <- str_split_fixed(gsub("NODE_", "NODE", all_contigs_BLAST_matches$V1), "_", 2)[,1]
+
+
+
+viral_seq_lengths_all_contigs <- unique(read.table("viral_seq_lengths_all_contigs.txt", header = FALSE))
+rownames(viral_seq_lengths_all_contigs) <- viral_seq_lengths_all_contigs$V2
+viral_seq_lengths_all_contigs <- viral_seq_lengths_all_contigs[all_contigs_BLAST_matches$V1,]
+all_contigs_BLAST_matches$TB_length <- viral_seq_lengths_all_contigs$V3 - 1
+
+
+
+
+
+all_contigs_BLAST_matches$newSTART <- all_contigs_BLAST_matches$MDAstart
+all_contigs_BLAST_matches$newSTOP <- all_contigs_BLAST_matches$MDAstop
+all_contigs_BLAST_matches$newMIN <- 1
+all_contigs_BLAST_matches$newMAX <- all_contigs_BLAST_matches$TB_length
+
+for (i in 1:nrow(all_contigs_BLAST_matches)){
+  if ((all_contigs_BLAST_matches$MDAstart[i] > all_contigs_BLAST_matches$MDAstop[i]) == TRUE) {
+    all_contigs_BLAST_matches$newMIN[i] <- all_contigs_BLAST_matches$MDAstop[i] - (all_contigs_BLAST_matches$TB_length[i] -   all_contigs_BLAST_matches$TBstop[i])
+    all_contigs_BLAST_matches$newSTART[i] <- all_contigs_BLAST_matches$MDAstop[i]
+    all_contigs_BLAST_matches$newSTOP[i] <- all_contigs_BLAST_matches$MDAstart[i]
+    all_contigs_BLAST_matches$newMAX[i] <- all_contigs_BLAST_matches$MDAstart[i] + all_contigs_BLAST_matches$TBstart[i]
+  } else {
+    all_contigs_BLAST_matches$newMIN[i] <-  all_contigs_BLAST_matches$MDAstart[i] - all_contigs_BLAST_matches$TBstart[i]
+    all_contigs_BLAST_matches$newSTART[i] <- all_contigs_BLAST_matches$MDAstart[i]
+    all_contigs_BLAST_matches$newSTOP[i] <- all_contigs_BLAST_matches$MDAstop[i]
+    all_contigs_BLAST_matches$newMAX[i] <- all_contigs_BLAST_matches$MDAstop[i] + (all_contigs_BLAST_matches$TB_length[i] - all_contigs_BLAST_matches$TBstop[i])
+  }
+}
+
+
+plot_dataALL <- all_contigs_BLAST_matches[, c(1, 13, 14, 16:19)]
+colnames(plot_dataALL) <- gsub("V1", "contig", colnames(plot_dataALL))
+
+plot_dataALL_m <- melt(plot_dataALL)
+plot_dataALL_m$vDots <- "none"
+
+
+
+plot_data$MG <- str_split_fixed(gsub("NODE_", "NODE", plot_data$contig), "_", 2)[,1]
+
+plot_data_m <- melt(plot_data)
+plot_data_m$vDots <- plot_data_m$variable
+plot_data_m$vDots <- gsub("newSTART", "viralSTART", plot_data_m$vDots)
+plot_data_m$vDots <- gsub("newSTOP", "viralSTOP", plot_data_m$vDots)
+plot_data_m$vDots <- gsub("newMIN", "none", plot_data_m$vDots)
+plot_data_m$vDots <- gsub("newMAX", "none", plot_data_m$vDots)
+plot_data_m$BV <- "Viral"
+
+plot_data_m_plus <- rbind(plot_data_m, plot_dataALL_m)
+
+plot_data_m_plus$MG <- factor(plot_data_m_plus$MG, levels = rev(unique(plot_data_m_plus$MG)))
+
+plot_data_m_plus[c(1,grep("NODE", plot_data_m_plus$MG)),]
+
+tempPLOT <- subset(plot_data_m_plus, MG %in% c("MDA", "Ga0214166"))
+
+
+pick <- function(condition){
+  function(d) d %>% filter_(condition)
+}
+
+
+ggplot(plot_data_m_plus, aes(value, MG)) +
+        geom_line(data = pick(~vDots == "none"), aes(group = MG), color = "#003366") +
+        geom_point(data = pick(~vDots %in% c("viralSTART", "viralSTOP")), aes(group = vDots, shape = vDots), size = 2) + 
+        #scale_color_manual(values = c("#0072B2", "#D55E00")) +
+  geom_line(data = pick(~vDots %in% c("viralSTART", "viralSTOP")), aes(group = MG), color = "#FF3300") +
+  labs(title = "Matching contigs to 01_51") +
+        theme_minimal() +
+        theme(axis.title = element_blank(),
+              panel.grid.major.x = element_blank(),
+              panel.grid.minor = element_blank(),
+              legend.title = element_blank(),
+              legend.background = element_blank(),
+              plot.title = element_text(size = 20, margin = margin(b = 10)),
+              plot.subtitle = element_text(size = 10, color = "darkslategrey", margin = margin(b = 25)),
+              plot.caption = element_text(size = 8, margin = margin(t = 10), color = "grey70", hjust = 0)) + annotate("rect", xmin = 40943, xmax = 42184, ymin = 0, ymax = Inf, alpha = .2) + annotate("rect", xmin = 36898, xmax = 38037, ymin = 0, ymax = Inf, alpha = .2) + coord_cartesian(xlim = c(-1000, 51000)) 
+
+
+
+
+ggplot(subset(plot_data_m_plus, variable %in% c("newSTART", "newSTOP")), aes(value, MG)) +
+        geom_line(data = pick(~vDots == "none"), aes(group = MG), color = "#003366") +
+        geom_point(data = pick(~vDots %in% c("viralSTART", "viralSTOP")), aes(group = vDots, shape = vDots), size = 2) + 
+        #scale_color_manual(values = c("#0072B2", "#D55E00")) +
+  geom_line(data = pick(~vDots %in% c("viralSTART", "viralSTOP")), aes(group = MG), color = "#FF3300") +
+  labs(title = "Matching contigs to 01_51") +
+        theme_minimal() +
+        theme(axis.title = element_blank(),
+              panel.grid.major.x = element_blank(),
+              panel.grid.minor = element_blank(),
+              legend.title = element_blank(),
+              legend.background = element_blank(),
+              plot.title = element_text(size = 20, margin = margin(b = 10)),
+              plot.subtitle = element_text(size = 10, color = "darkslategrey", margin = margin(b = 25)),
+              plot.caption = element_text(size = 8, margin = margin(t = 10), color = "grey70", hjust = 0)) + annotate("rect", xmin = 40943, xmax = 42184, ymin = 0, ymax = Inf, alpha = .2) + annotate("rect", xmin = 36898, xmax = 38037, ymin = 0, ymax = Inf, alpha = .2) # + coord_cartesian(xlim = c(-1000, 51000)) 
+```
+
+
+```{r}
+cdHIT_s90 <- read.table("cd-hit_01_51_viral_matches_s90_MD_comb_org.txt", header = TRUE)
+
+mDate <- format(as.Date(cdHIT_s90$date, format = "%m/%d/%Y"), "20%y/%m/%d")
+cdHIT_s90$date <- as.Date(mDate)
+cdHIT_s90$date <- factor(cdHIT_s90$date)
+cdHIT_s90$cluster <- factor(cdHIT_s90$cluster, levels = rev(hclust(dist(cdHIT_s90_UM), method = "median")$labels[hclust(dist(cdHIT_s90_UM), method = "median")$order]))
+cdHIT_s90$date_clustered <- factor(cdHIT_s90$date, levels = rev(hclust(dist(cdHIT_s90_UM))$labels[hclust(dist(cdHIT_s90_UM))$order]))
+
+
+
+ggplot(cdHIT_s90, aes(x = date
+                      , y = cluster, color = fraction, shape = fraction)) + 
+  geom_point(size = 3) + 
+  ylab("Proportion of the Bin with at least 1X coverage") +
+  ggtitle("Genome bin contig detection") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 14, face = "bold"),
+        text = element_text(size = 12),
+        axis.title = element_text(face="bold"),
+        axis.text.x=element_text(size = 11, angle = 45, hjust = 1)) +
+  scale_color_manual(values = c("#ca0020", "#fdae61", "#2c7bb6")) +
+  scale_shape_manual(values = c(1, 16, 16))
+p + facet_grid(. ~ variable)
+
+
+cdHIT_s90_UM <- dcast(cdHIT_s90, cluster ~ date)
+rownames(cdHIT_s90_UM) <- cdHIT_s90_UM$cluster
+cdHIT_s90_UM <- cdHIT_s90_UM[,2:45]
+hclust(dist(cdHIT_s90_UM), method = "centroid")
+
+cdHIT_s90_UM <- dcast(cdHIT_s90, date ~ cluster)
+rownames(cdHIT_s90_UM) <- cdHIT_s90_UM$date
+cdHIT_s90_UM <- cdHIT_s90_UM[,2:31]
+hclust(dist(cdHIT_s90_UM))
+
+
+```
+
+
+
+## before prophage coverage (nucleotide)
+
+```{r}
+c1_23_nt_coverage <- read.table("coverage_test_1_23.txt", header = TRUE, stringsAsFactors = FALSE)
+
+
+c1_23_nt_coverage_wMD <- add_metadata(c1_23_nt_coverage)
+colnames(c1_23_nt_coverage_wMD) <- gsub("sample_name", "sample", colnames(c1_23_nt_coverage_wMD))
+c1_23_nt_coverage_cleaned <- remove_samples_and_contigs(c1_23_nt_coverage_wMD)
+
+
+```
+
+## plotting viral coverage
+
+```{r}
+
+c1_23_nt_coverage_cleaned$seasonYear <- paste(c1_23_nt_coverage_cleaned$season, c1_23_nt_coverage_cleaned$year, sep = "")
+c1_23_nt_coverage_cleaned$new_norm_coverage <- c1_23_nt_coverage_cleaned$norm_coverage + 1
+
+ggplot(c1_23_nt_coverage_cleaned, 
+            aes(x = nt_position, y = new_norm_coverage, group = seasonYear, color = season)) + scale_y_log10() + geom_smooth() + facet_grid(. ~ year)
+
+ggplot(c1_23_nt_coverage_cleaned, 
+            aes(x = nt_position, y = new_norm_coverage, group = seasonYear, color = season)) + scale_y_log10() + geom_point(size = 0.2) + facet_grid(. ~ year)
+
+
+c1_23_nt_coverage_cleaned_agg <- aggregate(new_norm_coverage ~ seasonYear + nt_position + season + year, data = c1_23_nt_coverage_cleaned, FUN= "median")
+
+ggplot(c1_23_nt_coverage_cleaned_agg, 
+            aes(x = nt_position, y = new_norm_coverage, group = seasonYear, color = season)) + scale_y_log10() + geom_point(size = 0.2) + facet_grid(. ~ year)
+
+
+
+
+
+
+c1_23_nt_coverage_cleaned_agg$nt_position <- as.numeric(levels(c1_23_nt_coverage_cleaned_agg$nt_position))[c1_23_nt_coverage_cleaned_agg$nt_position]
+
+
+ggplot(c1_23_nt_coverage_cleaned_agg, 
+            aes(x = nt_position, y = new_norm_coverage, group = seasonYear, color = season)) + scale_y_log10() + geom_smooth() + facet_grid(. ~ year)
+```
+
+
+```{r}
+IHTF_prophage_1 <- read.table("IHTF_prophage_1.txt", header = TRUE)
+IHTF_prophage_2 <- read.table("IHTF_prophage_2.txt", header = TRUE)
+IHTF_prophage_3 <- read.table("IHTF_prophage_3.txt", header = TRUE)
+IHTF_prophage_4 <- read.table("IHTF_prophage_4.txt", header = TRUE)
+IHTF_prophage_5 <- read.table("IHTF_prophage_5.txt", header = TRUE)
+IHTF_prophage_6 <- read.table("IHTF_prophage_6.txt", header = TRUE)
+IHTF_prophage_7 <- read.table("IHTF_prophage_7.txt", header = TRUE)
+
+IHTF_prophage_2$nt_position <- IHTF_prophage_2$nt_position + 20807
+IHTF_prophage_3$nt_position <- IHTF_prophage_3$nt_position + 42458
+IHTF_prophage_4$nt_position <- IHTF_prophage_4$nt_position + 63795
+IHTF_prophage_5$nt_position <- IHTF_prophage_5$nt_position + 84915
+IHTF_prophage_6$nt_position <- IHTF_prophage_6$nt_position + 105845
+IHTF_prophage_7$nt_position <- IHTF_prophage_7$nt_position + 127373
+
+
+IHTF_prophage <- rbind(IHTF_prophage_1, IHTF_prophage_2, IHTF_prophage_3, IHTF_prophage_4, IHTF_prophage_5,
+                       IHTF_prophage_6, IHTF_prophage_7)
+
+ggplot(IHTF_prophage, aes(x = nt_position, y = coverage)) + geom_line() + scale_y_continuous(limits = c(0, 100)) + geom_vline(xintercept=59000)
+ggplot(IHTF_prophage, aes(x = nt_position, y = coverage)) + geom_line() + scale_y_continuous(limits = c(0, 100)) + scale_x_continuous(limits = c(80000, 85000))
+
+```
+
+## make viral coverage plots (median value of contigs)
+
+```{r}
+coverage_values_w_metadata_cleaned_MAG1_viral <-  pull_viruses(coverage_values_w_metadata_cleaned_MAG1)
+coverage_values_w_metadata_cleaned_MAG1_viral_01_51 <- subset(coverage_values_w_metadata_cleaned_MAG1_viral, contig == "ChPeak_MDA_MAG_00001_000000000051")
+
+mDate <- format(as.Date(coverage_values_w_metadata_cleaned_MAG1_viral_01_51$date, format = "%m/%d/%Y"), "20%y/%m/%d")
+coverage_values_w_metadata_cleaned_MAG1_viral_01_51$date <- mDate
+coverage_values_w_metadata_cleaned_MAG1_viral_01_51$date <- factor(coverage_values_w_metadata_cleaned_MAG1_viral_01_51$date, levels = unique(sort(mDate)))
+
+ggplot(coverage_values_w_metadata_cleaned_MAG1_viral_01_51, 
+            aes(x = date, y = norm_coverage, group = contig)) + scale_y_log10() + geom_line()
+
+
+coverage_values_w_metadata_cleaned_MAG1_host <- subset(coverage_values_w_metadata_cleaned_MAG1, contig %in% setdiff(unique(coverage_values_w_metadata_cleaned_MAG1$contig), unique(coverage_values_w_metadata_cleaned_MAG1_viral$contig)))
+mDate <- format(as.Date(coverage_values_w_metadata_cleaned_MAG1_host$date, format = "%m/%d/%Y"), "20%y/%m/%d")
+coverage_values_w_metadata_cleaned_MAG1_host$date <- mDate
+coverage_values_w_metadata_cleaned_MAG1_host$date <- factor(coverage_values_w_metadata_cleaned_MAG1_host$date, levels = unique(sort(mDate)))
+
+coverage_values_w_metadata_cleaned_MAG1_viral_01_51$source <- "viral_01_51"
+coverage_values_w_metadata_cleaned_MAG1_host$source <- "host"
+
+coverage_values_w_metadata_cleaned_MAG1_plot <- rbind(coverage_values_w_metadata_cleaned_MAG1_viral_01_51, coverage_values_w_metadata_cleaned_MAG1_host)
+
+coverage_values_w_metadata_cleaned_MAG1_plot$new_norm_coverage <- coverage_values_w_metadata_cleaned_MAG1_plot$norm_coverage + 1
+
+coverage_values_w_metadata_cleaned_MAG1_plot_no_epi <- subset(coverage_values_w_metadata_cleaned_MAG1_plot, fraction != "Epilimnion")
+coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017 <- subset(coverage_values_w_metadata_cleaned_MAG1_plot_no_epi, year != "2017")
+coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017$new_norm_coverage2 <- ((coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017$norm_coverage)*100000) + 1
+coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg <- aggregate(new_norm_coverage2 ~ date + source, data = coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017, FUN= "median")
+
+
+coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg_cleaned <- subset(coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg, date %in% setdiff(coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg$date, coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg[grep("2010", coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg$date),]$date))
+
+
+p <- ggplot(coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg_cleaned, aes(x = date, y = new_norm_coverage2, group = source, color = source)) + scale_y_log10() + geom_line(size = 5) + ylab("Median normalized coverage") + xlab("Sampling Date") +
+  ggtitle("Coverage of miniMG-identified Chlorobi Genome A and viral contig 01_51") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 30, face = "bold"),
+        text = element_text(size = 30),
+        axis.title = element_text(face="bold"),
+        axis.text.x=element_text(size = 16, angle = 45, hjust = 1)) +
+  scale_color_manual(values = c("#2c7bb6", "#ef8a62")) + geom_point(data = subset(coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg_cleaned, POS > 0), mapping = aes(x = date, y = POS), size = 3, color = "black", shape = 21, fill = "white", stroke = 3)
+
+
+coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg_cleaned$ymin1 <- 0
+coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg_cleaned$ymax1 <- c(rep(0.9, 63), rep(0, 63))
+coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg_cleaned$xmin1 <- c(1:63, 1:63)
+coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg_cleaned$xmax1 <- (c(1:63, 1:63))+1
+
+coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg_cleaned$season <- as.character(coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg_cleaned$date)
+
+coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg_cleaned[coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg_cleaned$season %in% springDATES, "season"] <- "spring"
+coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg_cleaned[coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg_cleaned$season %in% summerDATES, "season"] <- "summer"
+coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg_cleaned[coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg_cleaned$season %in% fallDATES, "season"] <- "fall"
+
+coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg_cleaned$season <- factor(coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg_cleaned$season, levels = c("spring", "summer", "fall"))
+
+p + geom_rect(data = coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg_cleaned, aes(xmin=xmin1, xmax=xmax1, ymin=ymin1, ymax=ymax1, fill= season), color = NA) + scale_fill_manual(values = c("black", "dark grey", "light grey")) +
+  geom_vline(xintercept = grep("2007", coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg_cleaned$date)[1], linetype = "dashed") +
+  geom_vline(xintercept = grep("2008", coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg_cleaned$date)[1], linetype = "dashed") +
+  geom_vline(xintercept = grep("2009", coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg_cleaned$date)[1], linetype = "dashed") +
+  geom_vline(xintercept = grep("2012", coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg_cleaned$date)[1], linetype = "dashed") +
+  geom_vline(xintercept = grep("2013", coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg_cleaned$date)[1], linetype = "dashed")
+
+
+
+
+
+
+m01_51_matches <- read.table("01_51_matches.txt", header = FALSE, stringsAsFactors = FALSE)
+
+
+
+coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg <- aggregate(new_norm_coverage2 ~ date + source + POS, data = coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017, FUN= "median")
+
+
+coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg_cleaned <- subset(coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg, date %in% setdiff(coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg$date, coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg[grep("2010", coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg$date),]$date))
+
+new_m01_51_matches <- c()
+for(i in 1:nrow(m01_51_matches)){
+  if(length(grep(m01_51_matches[i,1], coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017$sample)) > 0){
+    new_m01_51_matches <- c(new_m01_51_matches, m01_51_matches[i,1])
+  }
+}
+coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg_cleaned$POS <- 0
+for (i in 1:length(new_m01_51_matches)){
+    #maxVal <- max(coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg_cleaned[coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg_cleaned$date == as.character(unique(coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017[grep(new_m01_51_matches[i], coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017$sample),]$date)),]$new_norm_coverage2)
+  
+  maxVal <- subset(coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg_cleaned[coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg_cleaned$date == as.character(unique(coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017[grep(new_m01_51_matches[i], coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017$sample),]$date)),], source != "host")$new_norm_coverage2
+  
+    coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg_cleaned[coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg_cleaned$new_norm_coverage2 == maxVal, ]$POS <- maxVal
+}
+# 10^(log10(maxVal)+0.05
+
+p + geom_text(data = subset(coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg_cleaned, POS > 0), mapping = aes(x = date, y = POS), label = "*", size = 7, color = "black", nudge_y = 0.05)
+
+#p + geom_point(data = subset(coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg_cleaned, POS > 0), mapping = aes(x = date, y = POS), size = 1.5, color = "black", shape = 21, fill = "white")
+
+p + geom_point(data = subset(coverage_values_w_metadata_cleaned_MAG1_plot_no_epi_no2017_agg_cleaned, POS > 0), mapping = aes(x = date, y = POS), size = 1.5, color = "black", shape = 21, fill = "white", stroke = 1)
+
+######################################################################################################################
+### pick 4_20 as other
+c2_83_nt1_coverage <- read.table("coverage_test_2_83_1.txt", header = TRUE, stringsAsFactors = FALSE)
+c2_83_nt2_coverage <- read.table("coverage_test_2_83_2.txt", header = TRUE, stringsAsFactors = FALSE)
+
+c2_83_nt1_coverage_wMD <- add_metadata2(c2_83_nt1_coverage)
+colnames(c2_83_nt1_coverage_wMD) <- gsub("sample_name", "sample", colnames(c2_83_nt1_coverage_wMD))
+c2_83_nt1_coverage_cleaned <- remove_samples_and_contigs(c2_83_nt1_coverage_wMD)
+
+c2_83_nt2_coverage_wMD <- add_metadata2(c2_83_nt2_coverage)
+colnames(c2_83_nt2_coverage_wMD) <- gsub("sample_name", "sample", colnames(c2_83_nt2_coverage_wMD))
+c2_83_nt2_coverage_cleaned <- remove_samples_and_contigs(c2_83_nt2_coverage_wMD)
+
+c2_83_nt2_coverage_cleaned$nt_position <- c2_83_nt2_coverage_cleaned$nt_position + 26678
+
+c2_83_nt_coverage_cleaned <- rbind(c2_83_nt1_coverage_cleaned, c2_83_nt2_coverage_cleaned)
+
+c2_83_nt_coverage_cleaned <- subset(c2_83_nt_coverage_cleaned, nt_position > 2035)
+c2_83_nt_coverage_cleaned <- subset(c2_83_nt_coverage_cleaned, nt_position < 32878)
+
+c2_83_nt_coverage_cleaned$seasonYear <- paste(c2_83_nt_coverage_cleaned$season, c2_83_nt_coverage_cleaned$year, sep = "")
+
+
+c2_83_nt_coverage_cleaned_agg <- aggregate(norm_coverage ~ sample + location + date + fraction + month + day + year + season + ReadDepth + split_name, data = subset(c2_83_nt_coverage_cleaned, fraction != "Epilimnion"), FUN= "mean")
+
+colnames(c2_83_nt_coverage_cleaned_agg) <- gsub("split_name", "contig", colnames(c2_83_nt_coverage_cleaned_agg))
+
+#c2_83_nt_coverage_cleaned_agg$new_norm_coverage <- c2_83_nt_coverage_cleaned_agg$norm_coverage + 1
+mDate <- format(as.Date(c2_83_nt_coverage_cleaned_agg$date, format = "%m/%d/%Y"), "20%y/%m/%d")
+c2_83_nt_coverage_cleaned_agg$date <- mDate
+c2_83_nt_coverage_cleaned_agg$date <- factor(c2_83_nt_coverage_cleaned_agg$date, levels = unique(sort(mDate)))
+
+
+
+
+
+coverage_values_w_metadata_cleaned_MAG2_viral <-  pull_viruses(coverage_values_w_metadata_cleaned_MAG2)
+coverage_values_w_metadata_cleaned_MAG2_host <- subset(coverage_values_w_metadata_cleaned_MAG2, contig %in% setdiff(unique(coverage_values_w_metadata_cleaned_MAG2$contig), unique(coverage_values_w_metadata_cleaned_MAG2_viral$contig)))
+mDate <- format(as.Date(coverage_values_w_metadata_cleaned_MAG2_host$date, format = "%m/%d/%Y"), "20%y/%m/%d")
+coverage_values_w_metadata_cleaned_MAG2_host$date <- mDate
+coverage_values_w_metadata_cleaned_MAG2_host$date <- factor(coverage_values_w_metadata_cleaned_MAG2_host$date, levels = unique(sort(mDate)))
+
+c2_83_nt_coverage_cleaned_agg$source <- "viral_02_83"
+coverage_values_w_metadata_cleaned_MAG2_host$source <- "host"
+
+coverage_values_w_metadata_cleaned_MAG2_plot <- rbind(c2_83_nt_coverage_cleaned_agg, coverage_values_w_metadata_cleaned_MAG2_host)
+
+coverage_values_w_metadata_cleaned_MAG2_plot$new_norm_coverage <- coverage_values_w_metadata_cleaned_MAG2_plot$norm_coverage + 1
+
+coverage_values_w_metadata_cleaned_MAG2_plot_no_epi <- subset(coverage_values_w_metadata_cleaned_MAG2_plot, fraction != "Epilimnion")
+coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017 <- subset(coverage_values_w_metadata_cleaned_MAG2_plot_no_epi, year != "2017")
+coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017$new_norm_coverage2 <- ((coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017$norm_coverage)*100000) + 1
+coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg <- aggregate(new_norm_coverage2 ~ date + source, data = coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017, FUN= "median")
+
+coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned <- subset(coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg, date %in% setdiff(coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg$date, coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg[grep("2010", coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg$date),]$date))
+
+p <- ggplot(coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned, aes(x = date, y = new_norm_coverage2, group = source, color = source)) + scale_y_log10() + geom_line(size = 5) + xlab("Sampling Date") + ylab("Median normalized coverage") +
+  ggtitle("Coverage of miniMG-identified Chlorobi Genome B and viral contig 02_83") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 30, face = "bold"),
+        text = element_text(size = 30),
+        axis.title = element_text(face="bold"),
+        axis.text.x=element_text(size = 16, angle = 45, hjust = 1)) +
+  scale_color_manual(values = c("#2c7bb6", "#ef8a62")) + geom_point(data = subset(coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned, POS > 0), mapping = aes(x = date, y = POS), size = 3, color = "black", shape = 21, fill = "white", stroke = 3) 
+
+
+coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$ymin1 <- 0
+coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$ymax1 <- c(rep(0.9, 63), rep(0, 63))
+coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$xmin1 <- c(1:63, 1:63)
+coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$xmax1 <- (c(1:63, 1:63))+1
+
+coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$season <- as.character(coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$date)
+
+c(levels(coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$date)[grep("/05/", levels(coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$date))],
+  levels(coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$date)[grep("/06/1", levels(coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$date))],
+  levels(coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$date)[grep("/06/0", levels(coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$date))]) -> springDATES
+
+c(levels(coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$date)[grep("/06/2", levels(coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$date))],
+  levels(coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$date)[grep("/06/3", levels(coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$date))],
+  levels(coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$date)[grep("/07/", levels(coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$date))],
+  levels(coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$date)[grep("/08/", levels(coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$date))],
+  levels(coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$date)[grep("/09/0", levels(coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$date))],
+  levels(coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$date)[grep("/09/1", levels(coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$date))],
+    levels(coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$date)[grep("/09/20", levels(coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$date))]) -> summerDATES
+
+c(levels(coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$date)[grep("/09/3", levels(coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$date))],
+  levels(coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$date)[grep("/10/", levels(coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$date))],
+  levels(coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$date)[grep("/11/", levels(coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$date))]) -> fallDATES
+
+coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned[coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$season %in% springDATES, "season"] <- "spring"
+coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned[coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$season %in% summerDATES, "season"] <- "summer"
+coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned[coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$season %in% fallDATES, "season"] <- "fall"
+
+coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$season <- factor(coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$season, levels = c("spring", "summer", "fall"))
+
+p + geom_rect(data = coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned, aes(xmin=xmin1, xmax=xmax1, ymin=ymin1, ymax=ymax1, fill= season), color = NA) + scale_fill_manual(values = c("black", "dark grey", "light grey")) +
+  geom_vline(xintercept = grep("2007", coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$date)[1], linetype = "dashed") +
+  geom_vline(xintercept = grep("2008", coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$date)[1], linetype = "dashed") +
+  geom_vline(xintercept = grep("2009", coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$date)[1], linetype = "dashed") +
+  geom_vline(xintercept = grep("2012", coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$date)[1], linetype = "dashed") +
+  geom_vline(xintercept = grep("2013", coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$date)[1], linetype = "dashed")
+
+
+
+
+
+
+coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017$POS <- 0
+
+
+coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg <- aggregate(new_norm_coverage2 ~ date + source + POS, data = coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017, FUN= "median")
+
+coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned <- subset(coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg, date %in% setdiff(coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg$date, coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg[grep("2010", coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg$date),]$date))
+
+maxVal <- min(coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned[coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$date == as.character(unique(coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017[grep("IHWB", coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017$sample),]$date)),]$new_norm_coverage2)
+
+coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned[coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned$new_norm_coverage2 == maxVal, ]$POS <- maxVal
+
+
+p + geom_text(data = subset(coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned, POS > 0), mapping = aes(x = date, y = POS), label = "*", size = 7, color = "black")
+
+p + geom_point(data = subset(coverage_values_w_metadata_cleaned_MAG2_plot_no_epi_no2017_agg_cleaned, POS > 0), mapping = aes(x = date, y = POS), size = 1.5, color = "black", shape = 21, fill = "white", stroke = 1)
+```
+
+
+## viral presence/absence in MDA and SAG samples
+
+```{r}
+coverage_values_w_metadata_viral <- pull_viruses(coverage_values_w_metadata)
+
+
+
+remove_SAGs <- c("1132750", "1132751", "1132752", "1132753", "1132754", "1132755", "1132756", "1132758", "1132759", "1132760", "1132762", "1132764", "1132766", "1132767", "1132768", "1132769", "1132771", "1132772", "1132870", "1132871", "1132878", "1132879", "1132880", "1132881", "1132882", "1132883", "1132887", "1132889", "1132891", "1132892", "1133008", "1133010", "1133012", "1133015", "1133016", "1133017", "1133019", "1133024", "1133025", "1133026", "1133027", "1133028", "1133127", "1133128", "1133130", "1133131", "1133132", "1133133", "1133134", "1133135", "1133141", "1133142", "1133144", "1133146")
+coverage_values_w_metadata_viral_cleaned_2017 <- subset(subset(coverage_values_w_metadata_viral, year == "2017"), sample %in% setdiff(subset(coverage_values_w_metadata_viral, year == "2017")$sample, remove_SAGs))
+
+coverage_values_w_metadata_viral_cleaned_2017$bin_cov <- coverage_values_w_metadata_viral_cleaned_2017$coverage
+coverage_values_w_metadata_viral_cleaned_2017[coverage_values_w_metadata_viral_cleaned_2017$bin_cov > 0,]$bin_cov <- 1
+
+coverage_values_w_metadata_viral_cleaned_2017$sample <- factor(coverage_values_w_metadata_viral_cleaned_2017$sample, levels = rev(c("1187481", "1187482", "1187483", "1187484", "1187485", "1132770", "1132874", "1133136", "1187486", "1187487", "1187488", "1187489", "1187490", "1187478", "1187479")))
+
+coverage_values_w_metadata_viral_cleaned_2017$contig <- factor(coverage_values_w_metadata_viral_cleaned_2017$contig, levels = rev(c("ChPeak_MDA_Bin_00005_000000000073", "ChPeak_MDA_Bin_00005_000000000046", "ChPeak_MDA_MAG_00003_000000000099", "ChPeak_MDA_MAG_00003_000000000103", "ChPeak_MDA_MAG_00003_000000000082", "ChPeak_MDA_MAG_00001_000000000051", "ChPeak_MDA_MAG_00001_000000000015", "ChPeak_MDA_MAG_00002_000000000083", "ChPeak_MDA_Bin_00004_000000000068", "ChPeak_MDA_Bin_00004_000000000022", "ChPeak_MDA_Bin_00004_000000000020")))
+
+
+
+ggplot(coverage_values_w_metadata_viral_cleaned_2017, aes(x = contig, y = sample)) +
+  geom_tile(aes(fill = bin_cov, color = bin_cov)) + scale_fill_gradient(low = "light grey", high = "black") + scale_color_gradient(low = "light grey", high = "black") + geom_segment(x=0, xend=11.5, y=1.5, yend=1.5, size=.5, color = "white") +
+  geom_segment(x=0, xend=11.5, y=2.5, yend=2.5, size=.5, color = "white") + 
+  geom_segment(x=0, xend=11.5, y=3.5, yend=3.5, size=.5, color = "white") +
+  geom_segment(x=0, xend=11.5, y=4.5, yend=4.5, size=.5, color = "white") +
+  geom_segment(x=0, xend=11.5, y=5.5, yend=5.5, size=.5, color = "white") +
+  geom_segment(x=0, xend=11.5, y=6.5, yend=6.5, size=.5, color = "white") +
+  geom_segment(x=0, xend=11.5, y=7.5, yend=7.5, size=.5, color = "white") +
+  geom_segment(x=0, xend=11.5, y=8.5, yend=8.5, size=.5, color = "white") +
+  geom_segment(x=0, xend=11.5, y=9.5, yend=9.5, size=.5, color = "white") +
+  geom_segment(x=0, xend=11.5, y=10.5, yend=10.5, size=.5, color = "white") +
+  geom_segment(x=0, xend=11.5, y=11.5, yend=11.5, size=.5, color = "white") +
+  geom_segment(x=0, xend=11.5, y=12.5, yend=12.5, size=.5, color = "white") +
+  geom_segment(x=0, xend=11.5, y=13.5, yend=13.5, size=.5, color = "white") +
+  geom_segment(x=0, xend=11.5, y=14.5, yend=14.5, size=.5, color = "white") +
+  theme(plot.title = element_text(size = 14, face = "bold"),
+        text = element_text(size = 12),
+        axis.title = element_text(face="bold"),
+        panel.grid=element_blank(),
+        panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank()) + xlab("Viral Contig")
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+

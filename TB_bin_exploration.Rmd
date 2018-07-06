@@ -34,7 +34,7 @@ weirdbin_contigs <- c("ChPeak_MDA_MAG_00003_000000000133", "ChPeak_MDA_MAG_00003
 vDataBin1 <- read.table("Bin1_coverages_R.txt", header = TRUE, row.names = 1)
 vDataBin2 <- read.table("Bin2_coverages_R.txt", header = TRUE, row.names = 1)
 vDataBin3t <- read.table("Bin3_coverages_R.txt", header = TRUE, row.names = 1)
-  vDataBin3 <- subset(vDataBin3t, select = !(names(vDataBin3t) %in% weirdbin_contigs))
+vDataBin3 <- subset(vDataBin3t, select = !(names(vDataBin3t) %in% weirdbin_contigs))
 vDataBin4 <- read.table("Bin4_coverages_R.txt", header = TRUE, row.names = 1)
 vDataBin5 <- read.table("Bin5_coverages_R.txt", header = TRUE, row.names = 1)
 
@@ -743,5 +743,7 @@ ggplot(aggregate(value ~ date + variable, data = sulfur_detect_pos_m, FUN= "medi
         axis.text.x=element_text(size = 11, angle = 45, hjust = 1))
 
 
+sulfur_KEGG <- read.table("sulfur_kegg.txt", header = FALSE, row.names = 1)
+rownames(sulfur_KEGG) <- colnames(sulfur_detect)[1:72]
 
 ```

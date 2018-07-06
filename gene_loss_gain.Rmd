@@ -1,0 +1,386 @@
+---
+title: "gene_loss_gain"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## filter data
+
+```{r}
+Bin1_cov <- read.table("old_m_um_remapped_new_data_renamed_pooled_remapped_merged-GENE-COVERAGES_Bin1.txt", header = TRUE, row.names = 1)
+Bin1_genes <- read.table("Bin1_genes.txt", header = FALSE, row.names = 1)
+Bin1_genes$length <- Bin1_genes$V4 - Bin1_genes$V3
+Bin1_genes_subset <- subset(Bin1_genes, length > 450)
+
+
+temp <- data.frame(t(Bin1_cov))
+rownames(temp) <- gsub("a", "", rownames(temp))
+metadata1 <- metadata[rownames(temp),]
+temp2 <- cbind(temp, metadata1)
+num_reads2 <- data.frame(num_reads_new[as.character(temp2$sample),])
+colnames(num_reads2) <- c("ReadDepth")
+rownames(num_reads2) <- as.character(temp2$sample)
+temp3 <- cbind(temp2, num_reads2)
+temp3$ReadDepth <- factor(temp3$ReadDepth)
+temp4 <- melt(temp3)
+colnames(temp4) <- gsub("value", "coverage", colnames(temp4))
+colnames(temp4) <- gsub("variable", "gene", colnames(temp4))
+temp4$ReadDepth <- as.numeric(levels(temp4$ReadDepth))[temp4$ReadDepth]
+temp4$norm_coverage <- (temp4$coverage/as.numeric(temp4$ReadDepth))*10000
+mDate <- format(as.Date(temp4$date, format = "%m/%d/%Y"), "20%y/%m/%d")
+temp4$date <- mDate
+temp4$date <- factor(temp4$date, levels = unique(sort(mDate)))
+colnames(temp4) <- gsub("split_name", "gene", colnames(temp4))
+temp4$seasonYear <- paste(temp4$season, temp4$year, sep = "")
+temp4$new_norm_coverage <- temp4$norm_coverage + 1
+
+Bin1_cov_data <- subset(subset(temp4, fraction != "Epilimnion"), sample %in% setdiff(temp4$sample, c(remove_SAGs, remove_controls_list)))
+
+Bin1_cov_data <- subset(Bin1_cov_data, year != 2010)
+Bin1_cov_data$gene <- gsub("X", "", Bin1_cov_data$gene)
+
+Bin1_cov_data_subset <- subset(Bin1_cov_data, gene %in% rownames(Bin1_genes_subset))
+
+
+Bin1_cov_data_subset$length <- Bin1_genes_subset[Bin1_cov_data_subset$gene, ]$length
+
+#### DIFFERENT COVERAGE NORMALIZATION!!
+Bin1_cov_data_subset$norm_coverage <- Bin1_cov_data_subset$coverage/Bin1_cov_data_subset$length
+
+gene_freq_base <- aggregate(norm_coverage ~ sample, data = Bin1_cov_data_subset, FUN = "median")
+
+
+
+rownames(gene_freq_base) <- gene_freq_base$sample
+Bin1_cov_data_subset$med_cov_all_genes <- gene_freq_base[as.character(Bin1_cov_data_subset$sample), ]$norm_coverage
+Bin1_cov_data_subset$gene_freq <- Bin1_cov_data_subset$norm_coverage/Bin1_cov_data_subset$med_cov_all_genes
+
+Bin1_cov_data_subset_agg <- aggregate(gene_freq ~ gene + year, data = Bin1_cov_data_subset, FUN = "median")
+
+gene_hits <- c()
+for(i in 1:length(unique(Bin1_cov_data_subset_agg$gene))){
+  if(abs(subset(subset(Bin1_cov_data_subset_agg, gene == unique(Bin1_cov_data_subset_agg$gene)[i]), year == 2005)$gene_freq - subset(subset(Bin1_cov_data_subset_agg, gene == unique(Bin1_cov_data_subset_agg$gene)[i]), year == 2013)$gene_freq) > 0.4){
+    gene_hits[i] <- unique(Bin1_cov_data_subset_agg$gene)[i]
+  }
+}
+gene_hits <- gene_hits[is.na(gene_hits) == FALSE]
+
+
+
+
+test_dat <- subset(subset(Bin1_cov_data_subset, year != 2017), gene == 1523)
+test_dat$vals <- gsub(6, 5, as.numeric(test_dat$year))
+test_dat$vals <- gsub(7, 6, test_dat$vals)
+test_dat$vals <- as.numeric(test_dat$vals)
+
+lm_results <- data.frame(gene = numeric(), pval = numeric())
+for(i in 1:unique(Bin1_cov_data_subset_agg_hits_no2017$gene)){
+  test_dat <- subset(Bin1_cov_data_subset_agg_hits_no2017, gene == unique(Bin1_cov_data_subset_agg_hits_no2017$gene)[i])
+  test_dat$vals <- c(1:6)
+  
+  #test_dat <- subset(subset(Bin1_cov_data_subset, year != 2017), gene == unique(Bin1_cov_data_subset_agg_hits_no2017$gene)[i])
+  #test_dat$vals <- gsub(6, 5, as.numeric(test_dat$year))
+  #test_dat$vals <- gsub(7, 6, test_dat$vals)
+  #test_dat$vals <- as.numeric(test_dat$vals)
+
+  lm_results[i,1] <- unique(Bin1_cov_data_subset_agg_hits_no2017$gene)[i]
+  lm_results[i,2] <- summary(lm(vals ~ gene_freq, data = test_dat))$coefficients[2,4]
+}
+
+lm_results$FDR <- p.adjust(lm_results$pval, method = "fdr")
+subset(lm_results, pval < 0.01)$gene
+
+
+
+Bin1_cov_data_subset_agg_hits <- subset(Bin1_cov_data_subset_agg, gene %in% gene_hits)
+
+Bin1_cov_data_subset_agg_hits_no2017 <- subset(Bin1_cov_data_subset_agg_hits, year != 2017)
+
+Bin1_cov_data_subset_agg_hits_no2017_filtered <- subset(Bin1_cov_data_subset_agg_hits_no2017, gene %in% subset(lm_results, pval < 0.01)$gene)
+
+
+
+
+
+ggplot(Bin1_cov_data_subset_agg_hits_no2017_filtered, aes(x = year, y = gene_freq, group = gene, color = gene)) + geom_line(size = 2) + xlab("Year") + ylab("Gene Frequency") +
+  ggtitle("Bin 1 Gene Frequency") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 20, face = "bold"),
+        text = element_text(size = 20),
+        axis.title = element_text(face="bold"),
+        axis.text.x=element_text(size = 6, angle = 45, hjust = 1)) #+
+  #scale_color_manual(values = c("#2c7bb6", "#ef8a62"))
+
+
+
+
+
+
+
+
+
+
+
+Bin1_cov_data_subset_agg_hits_no2017_unmelt <- dcast(Bin1_cov_data_subset_agg_hits_no2017, gene ~ year, value.var = "gene_freq")
+
+rownames(Bin1_cov_data_subset_agg_hits_no2017_unmelt) <- Bin1_cov_data_subset_agg_hits_no2017_unmelt$gene
+
+Bin1_cov_data_subset_agg_hits_no2017_unmelt <- Bin1_cov_data_subset_agg_hits_no2017_unmelt[,c(-1)]
+
+detect_differentially_abundant_features(Bin1_cov_data_subset_agg_hits_no2017_unmelt)
+Bin1_cov_data_subset_agg_hits_no2017_unmelt[,c(1,6)]
+
+ft_results <- data.frame(gene = numeric(), pval = numeric())
+totals <- colSums(Bin1_cov_data_subset_agg_hits_no2017_unmelt[,c(1,6)])
+for(i in 1:nrow(Bin1_cov_data_subset_agg_hits_no2017_unmelt[,c(1,6)])){
+  
+  #table <- rbind(Bin1_cov_data_subset_agg_hits_no2017_unmelt[,c(1,6)][i, ], (totals - Bin1_cov_data_subset_agg_hits_no2017_unmelt[,c(1,6)][i, ]))
+  
+   contingencytable <- array(0, dim=c(2,2))
+   contingencytable[1,1] <- Bin1_cov_data_subset_agg_hits_no2017_unmelt[,c(1,6)][i, 1]
+   contingencytable[1,2] <- Bin1_cov_data_subset_agg_hits_no2017_unmelt[,c(1,6)][i, 2]
+   contingencytable[2,1] <- totals[1] - Bin1_cov_data_subset_agg_hits_no2017_unmelt[,c(1,6)][i, 1]
+   contingencytable[2,2] <- totals[2] - Bin1_cov_data_subset_agg_hits_no2017_unmelt[,c(1,6)][i, 1]
+   
+  ft_results[i,1] <- rownames(Bin1_cov_data_subset_agg_hits_no2017_unmelt[,c(1,6)][i, ]) 
+  ft_results[i,2] <- fisher.test(contingencytable, workspace = 8e6, alternative = "two.sided", conf.int = FALSE)$p.value
+}
+
+
+        for (i in 1:nrows){                   # for each taxa
+            if (sum(Fmatrix[i,1:(g-1)]) < (g-1) && sum(Fmatrix[i,g:ncols]) < (ncols-g+1)){
+                # then this is a candidate for fisher's exact test
+                f11 = sum(Fmatrix[i,1:(g-1)]);
+                f12 = sum(Fmatrix[i,g:ncols]);
+                f21 = sum(totals[1:(g-1)]) - f11;
+                f22 = sum(totals[g:ncols]) - f12;
+                #  f11  f12
+                #  f21  f22  <- contigency table format
+                contingencytable <- array(0, dim=c(2,2));
+                contingencytable[1,1] = f11;
+                contingencytable[1,2] = f12;
+                contingencytable[2,1] = f21;
+                contingencytable[2,2] = f22;
+                ft <- fisher.test(contingencytable, workspace = 8e6, alternative = "two.sided", conf.int = FALSE);
+                pvalues[i] = ft$p.value; 
+            }  
+        }
+
+```
+
+```{r}
+detect_differentially_abundant_features <- function(jobj, pflag = NULL, threshold = NULL, B = NULL){
+    
+    #**********************************************************************************
+    # ************************ INITIALIZE COMMAND-LINE ********************************
+    # ************************        PARAMETERS       ********************************
+    #**********************************************************************************
+    qflag = FALSE;
+    if (is.null(B)){
+        B = 1000;
+    }
+    if (is.null(threshold)){
+        threshold = 0.05;
+    }
+    if (is.null(pflag)){
+        pflag = TRUE;
+        qflag = FALSE;
+    }
+    if (pflag == TRUE){
+        qflag = FALSE;
+    }
+    if (pflag == FALSE){
+        qflag = TRUE;
+    }
+    
+    #********************************************************************************
+    # ************************ INITIALIZE PARAMETERS ********************************
+    #********************************************************************************
+    
+    #*************************************
+    Fmatrix <- jobj;                   # the feature abundance matrix
+    taxa <- rownames(jobj);                        # the taxa/(feature) labels of the TAM
+    nrows = nrow(Fmatrix);                   
+    ncols = ncol(Fmatrix);
+    Pmatrix <- array(0, dim=c(nrows,ncols));  # the relative proportion matrix
+    C1 <- array(0, dim=c(nrows,3));           # statistic profiles for class1 and class 2
+    C2 <- array(0, dim=c(nrows,3));           # mean[1], variance[2], standard error[3]   
+    T_statistics <- array(0, dim=c(nrows,1)); # a place to store the true t-statistics 
+    pvalues <- array(0, dim=c(nrows,1));      # place to store pvalues
+    qvalues <- array(0, dim=c(nrows,1));      # stores qvalues
+    #*************************************
+    
+    #*************************************
+    #  convert to proportions
+    #  generate Pmatrix
+    #*************************************
+    totals <- array(0, dim=c(ncol(Fmatrix)));
+    for (i in 1:ncol(Fmatrix)) { 
+        # sum the ith column 
+        totals[i] = sum(Fmatrix[,i]);
+    }
+    
+    for (i in 1:ncols) {   # for each subject
+        for (j in 1:nrows) { # for each row
+            Pmatrix[j,i] = Fmatrix[j,i]/totals[i];
+        }
+    }
+    
+    
+    #********************************************************************************
+    # ************************** STATISTICAL TESTING ********************************
+    #********************************************************************************
+    
+    if (ncols == 2){  # then we have a two sample comparison
+        #************************************************************
+        #  generate p values using chisquared or fisher's exact test
+        #************************************************************
+        for (i in 1:nrows){           # for each feature
+            f11 = sum(Fmatrix[i,1]);
+            f12 = sum(Fmatrix[i,6]);
+            f21 = totals[1] - f11;
+            f22 = totals[2] - f12;
+            C1[i,1] = f11/totals[1];                       # proportion estimate
+            C1[i,2] = (C1[i,1]*(1-C1[i,1]))/(totals[1]-1); # sample variance
+            C1[i,3] = sqrt(C1[i,2]);                       # sample standard error
+            C2[i,1] = f12/totals[2];
+            C2[i,2] = (C2[i,1]*(1-C2[i,1]))/(totals[2]-1);
+            C2[i,3] = sqrt(C2[i,2]); 
+            
+            #  f11  f12
+            #  f21  f22  <- contigency table format
+            contingencytable <- array(0, dim=c(2,2));
+            contingencytable[1,1] = f11;
+            contingencytable[1,2] = f12;
+            contingencytable[2,1] = f21;
+            contingencytable[2,2] = f22;
+            
+            if (f11 > 20 && f22 > 20){
+                csqt <- chisq.test(contingencytable);
+                pvalues[i] = csqt$p.value;
+            }else{
+                ft <- fisher.test(contingencytable, workspace = 8e6, alternative = "two.sided", conf.int = FALSE);
+                pvalues[i] = ft$p.value;
+            }
+            
+        }
+        
+        #*************************************
+        #  calculate q values from p values
+        #*************************************
+        qvalues <- calc_qvalues(pvalues);
+        
+    }else{ # we have multiple subjects per population
+        
+        #*************************************
+        #  generate statistics mean, var, stderr    
+        #*************************************
+        for (i in 1:nrows){ # for each taxa
+            # find the mean of each group
+            C1[i,1] = mean(Pmatrix[i, 1:g-1]);  
+            C1[i,2] = var(Pmatrix[i, 1:g-1]); # variance
+            C1[i,3] = C1[i,2]/(g-1);    # std err^2 (will change to std err at end)
+            
+            C2[i,1] = mean(Pmatrix[i, g:ncols]);  
+            C2[i,2] = var(Pmatrix[i, g:ncols]);  # variance
+            C2[i,3] = C2[i,2]/(ncols-g+1); # std err^2 (will change to std err at end)
+        }
+        
+        #*************************************
+        #  two sample t-statistics
+        #*************************************
+        for (i in 1:nrows){                   # for each taxa
+            xbar_diff = C1[i,1] - C2[i,1]; 
+            denom = sqrt(C1[i,3] + C2[i,3]);
+            T_statistics[i] = xbar_diff/denom;  # calculate two sample t-statistic
+        }
+        
+        #*************************************
+        # generate initial permuted p-values
+        #*************************************
+        pvalues <- permuted_pvalues(Pmatrix, T_statistics, B, g, Fmatrix);
+        
+        #*************************************
+        #  generate p values for sparse data 
+        #  using fisher's exact test
+        #*************************************
+        for (i in 1:nrows){                   # for each taxa
+            if (sum(Fmatrix[i,1:(g-1)]) < (g-1) && sum(Fmatrix[i,g:ncols]) < (ncols-g+1)){
+                # then this is a candidate for fisher's exact test
+                f11 = sum(Fmatrix[i,1:(g-1)]);
+                f12 = sum(Fmatrix[i,g:ncols]);
+                f21 = sum(totals[1:(g-1)]) - f11;
+                f22 = sum(totals[g:ncols]) - f12;
+                #  f11  f12
+                #  f21  f22  <- contigency table format
+                contingencytable <- array(0, dim=c(2,2));
+                contingencytable[1,1] = f11;
+                contingencytable[1,2] = f12;
+                contingencytable[2,1] = f21;
+                contingencytable[2,2] = f22;
+                ft <- fisher.test(contingencytable, workspace = 8e6, alternative = "two.sided", conf.int = FALSE);
+                pvalues[i] = ft$p.value; 
+            }  
+        }
+        
+        #*************************************
+        #  calculate q values from p values
+        #*************************************
+        qvalues <- calc_qvalues(pvalues);
+        
+        #*************************************
+        #  convert stderr^2 to std error
+        #*************************************
+        for (i in 1:nrows){
+            C1[i,3] = sqrt(C1[i,3]);
+            C2[i,3] = sqrt(C2[i,3]);
+        }
+    }
+    
+    
+    
+    #*************************************
+    #  threshold sigvalues and print
+    #*************************************
+    sigvalues <- array(0, dim=c(nrows,1));
+    if (pflag == TRUE){  # which are you thresholding by?
+        sigvalues <- pvalues;
+    }else{
+        sigvalues <- qvalues;
+    }
+    s = sum(sigvalues <= threshold);
+    Differential_matrix <- array(0, dim=c(s,9));
+    
+    dex = 1;
+    for (i in 1:nrows){
+        if (sigvalues[i] <= threshold){
+            Differential_matrix[dex,1]   = jobj$taxa[i];
+            Differential_matrix[dex,2:4] = C1[i,];
+            Differential_matrix[dex,5:7] = C2[i,];
+            Differential_matrix[dex,8]   = pvalues[i];  
+            Differential_matrix[dex,9]   = qvalues[i];
+            dex = dex+1;  
+        }
+    }
+    
+    #show(Differential_matrix);
+    
+    Total_matrix <- array(0, dim=c(nrows,9));
+    for (i in 1:nrows){
+        Total_matrix[i,1]   = jobj$taxa[i];
+        Total_matrix[i,2:4] = C1[i,];
+        Total_matrix[i,5:7] = C2[i,];
+        Total_matrix[i,8]   = pvalues[i];
+        Total_matrix[i,9]   = qvalues[i];
+    }
+    
+    #write(t(Total_matrix), output, ncolumns = 9, sep = "\t");
+    return(pvalues)
+}
+
+
+
+```
